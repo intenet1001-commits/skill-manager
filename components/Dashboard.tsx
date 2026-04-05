@@ -7,6 +7,9 @@ import { SearchBar } from './SearchBar'
 import { FilterPanel } from './FilterPanel'
 import { SkillCard } from './SkillCard'
 import { StatsBar } from './StatsBar'
+import { AIPanel } from './AIPanel'
+
+type Mode = 'browse' | 'ai'
 
 const PAGE_SIZE = 60
 
@@ -15,6 +18,7 @@ interface Props {
 }
 
 export function Dashboard({ skills }: Props) {
+  const [mode, setMode] = useState<Mode>('browse')
   const [query, setQuery] = useState('')
   const [filters, setFilters] = useState<Filters>({
     plugins: [],
@@ -97,12 +101,39 @@ export function Dashboard({ skills }: Props) {
           <span style={{ fontSize: '18px' }}>🎯</span>
           <span style={{ fontWeight: 700, fontSize: '16px', color: 'var(--text)' }}>Skill Manager</span>
         </div>
-        <SearchBar value={query} onChange={handleQueryChange} />
+
+        {/* Mode tabs */}
+        <div style={{ display: 'flex', gap: '2px', padding: '3px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', flexShrink: 0 }}>
+          {(['browse', 'ai'] as Mode[]).map(m => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              style={{
+                padding: '4px 12px', borderRadius: '6px', border: 'none', cursor: 'pointer',
+                fontSize: '13px', fontWeight: mode === m ? 600 : 400,
+                background: mode === m ? 'var(--primary)' : 'transparent',
+                color: mode === m ? '#fff' : 'var(--text-muted)',
+                transition: 'all 0.15s',
+              }}
+            >
+              {m === 'browse' ? '🔍 탐색' : '✨ AI 추천'}
+            </button>
+          ))}
+        </div>
+
+        {mode === 'browse' && <SearchBar value={query} onChange={handleQueryChange} />}
         <StatsBar all={skills} filtered={filtered} />
       </header>
 
       {/* Body */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+
+        {mode === 'ai' ? (
+          <main style={{ flex: 1, overflowY: 'auto' }}>
+            <AIPanel />
+          </main>
+        ) : (
+        <>
         {/* Sidebar */}
         <div style={{ overflowY: 'auto', padding: '16px', borderRight: '1px solid var(--border)', flexShrink: 0 }}>
           <FilterPanel skills={skills} filters={filters} onChange={handleFiltersChange} />
@@ -148,6 +179,8 @@ export function Dashboard({ skills }: Props) {
             </>
           )}
         </main>
+        </>
+        )}
       </div>
     </div>
   )

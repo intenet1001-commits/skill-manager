@@ -1,0 +1,181 @@
+{
+  "url": "http://localhost:9025",
+  "timestamp": "2026-04-05T20:12:30.224329",
+  "summary": {
+    "totalTests": 13,
+    "passed": 13,
+    "failed": 0,
+    "warnings": 0,
+    "skipped": 0,
+    "passRate": "100.0%"
+  },
+  "tests": [
+    {
+      "id": "header-001",
+      "category": "navigation",
+      "page": "/",
+      "description": "Header shows '🎯 Skill Manager', '🔍 탐색' tab, '✨ AI 추천' tab",
+      "status": "passed",
+      "duration": "2.48s",
+      "details": {
+        "hasSkillManager": true,
+        "hasExploreTab": true,
+        "hasAITab": true
+      }
+    },
+    {
+      "id": "header-002",
+      "category": "ui-check",
+      "page": "/",
+      "description": "Header StatsBar shows Claude status badge",
+      "status": "passed",
+      "duration": "2.07s",
+      "details": {
+        "badgeText": "Claude 연결됨"
+      }
+    },
+    {
+      "id": "tab-001",
+      "category": "navigation",
+      "page": "/",
+      "description": "Click '✨ AI 추천' tab — AIPanel renders",
+      "status": "passed",
+      "duration": "0.93s",
+      "details": {
+        "aiPanelVisible": true
+      }
+    },
+    {
+      "id": "ui-001",
+      "category": "ui-check",
+      "page": "/ai",
+      "description": "AI tab shows '📂 프로젝트 폴더 열기' button and '✏️' pencil button",
+      "status": "passed",
+      "duration": "0.03s",
+      "details": {
+        "folderBtnFound": true,
+        "pencilBtnFound": true
+      }
+    },
+    {
+      "id": "ui-002",
+      "category": "ui-check",
+      "page": "/ai",
+      "description": "Empty state shows '자연어로 스킬을 찾아보세요' and folder hint",
+      "status": "passed",
+      "duration": "0.03s",
+      "details": {
+        "hasEmptyText": true,
+        "hasHintText": true
+      }
+    },
+    {
+      "id": "ui-003",
+      "category": "ui-interaction",
+      "page": "/ai",
+      "description": "Pencil button reveals path input with placeholder",
+      "status": "passed",
+      "duration": "0.59s",
+      "details": {
+        "pathInputFound": true
+      }
+    },
+    {
+      "id": "form-001",
+      "category": "form",
+      "page": "/ai",
+      "description": "Type '/Users/gwanli/Documents/GitHub/myproduct_v4/vibe2' in path input and press Enter",
+      "status": "passed",
+      "duration": "3.28s",
+      "details": {
+        "path": "/Users/gwanli/Documents/GitHub/myproduct_v4/vibe2"
+      }
+    },
+    {
+      "id": "ui-004",
+      "category": "ui-check",
+      "page": "/ai",
+      "description": "Tech stack badges appear after project path loaded",
+      "status": "passed",
+      "duration": "1.55s",
+      "details": {
+        "techFound": [
+          "Next.js",
+          "TypeScript",
+          "Tailwind"
+        ],
+        "hasProjectBadge": true,
+        "pathInputGone": true
+      }
+    },
+    {
+      "id": "form-002",
+      "category": "form",
+      "page": "/ai",
+      "description": "Type '테스트 작성' in goal input and click 'AI 추천' button",
+      "status": "passed",
+      "duration": "0.92s",
+      "details": {
+        "goalFilled": true,
+        "btnClicked": true
+      }
+    },
+    {
+      "id": "stream-001",
+      "category": "streaming",
+      "page": "/ai",
+      "description": "Streaming text or loading state appears after AI 추천 click",
+      "status": "passed",
+      "duration": "1.03s",
+      "details": {
+        "streamingTextFound": true,
+        "loadingStateFound": false
+      }
+    },
+    {
+      "id": "ai-001",
+      "category": "ai-recommendation",
+      "page": "/ai",
+      "description": "AI results appear: cmd codes, plugin badges, Korean reasons, copy buttons",
+      "status": "passed",
+      "duration": "18.13s",
+      "details": {
+        "resultFound": true,
+        "cardCount": 5,
+        "hasCmdCodes": true,
+        "hasPluginBadge": true,
+        "hasKoreanReason": true,
+        "errorFound": false,
+        "errorText": "",
+        "bodySnippet": "🎯\nSkill Manager\n🔍 탐색\n✨ AI 추천\n1,155 skills\n28 plugins\n1,136 invocable\nClaude 연결됨\n📂\nvibe2\nNext.js\nTypeScript\nTailwind CSS\n✕\n분석 중...\n✨ 5개 스킬 추천됨 (vibe2 기준)\n①\n/testing-patterns\nstandalone\nJest 테스트 패턴과 팩토리 함수를 활용해 Next.js/TypeScript 프로젝트에 적합한 유닛 테스트를 작성할 수 있습니다.\n복사\n②\n/e2e-testing-patterns\nstandalone\nPlaywright 기반 E2E 테스트로 vibe2의 페이지 및 UI 컴포넌트 전체 흐름을 검증할 수 있습니다.\n복사\n③\n/test-driven-development\nstandalone\nTDD 방식으로 기능 구현과 테스트를 동시에 진행하여 코드 품질을 높일 수 있습니다.\n복사\n④\n/test-automator\nstandalone\nAI 기반 테스트 자동화로 반복적인 테스트 코드 작성을 효율화할 수 있습니다.\n복사\n⑤\n/test-fixing\nstandalone\n기존 실패 테스트를 체계적으로 수정하고 안정적인 테스트 스위트를 유지할 수 있습니다.\n복사"
+      }
+    },
+    {
+      "id": "ui-005",
+      "category": "ui-interaction",
+      "page": "/ai",
+      "description": "Copy button on first result — shows '✓' feedback after click",
+      "status": "passed",
+      "duration": "0.90s",
+      "details": {
+        "copyBtnsFound": 5,
+        "checkmarkFeedback": true
+      }
+    },
+    {
+      "id": "nav-001",
+      "category": "navigation",
+      "page": "/",
+      "description": "탐색 tab shows search bar, filter panel, and skill cards",
+      "status": "passed",
+      "duration": "1.12s",
+      "details": {
+        "searchInputFound": true,
+        "hasFilterPanel": true,
+        "hasSkillContent": true,
+        "cardElements": 1
+      }
+    }
+  ],
+  "issues": []
+}
