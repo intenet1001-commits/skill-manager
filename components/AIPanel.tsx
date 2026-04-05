@@ -216,6 +216,9 @@ export function AIPanel() {
   // Reset selection when new results arrive
   useEffect(() => { setSelectedSkills(new Set()) }, [results])
 
+  // Selecting a folder = granting permission: auto-enable skip-perms
+  useEffect(() => { setSkipPerms(!!project) }, [project])
+
   function toggleSkill(i: number) {
     setSelectedSkills(prev => {
       const next = new Set(prev)
