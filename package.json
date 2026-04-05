@@ -1,0 +1,33 @@
+{
+  "name": "skill-manager",
+  "version": "0.1.0",
+  "private": true,
+  "bin": {
+    "skill-manager": "scripts/cli.mjs"
+  },
+  "scripts": {
+    "predev": "node scripts/build-index.mjs",
+    "dev": "next dev -p 9025",
+    "prebuild": "node scripts/build-index.mjs",
+    "build": "next build",
+    "build-index": "node scripts/build-index.mjs",
+    "start": "next start -p 9025"
+  },
+  "dependencies": {
+    "next": "^15.3.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "fuse.js": "^7.0.0",
+    "lucide-react": "^0.511.0"
+  },
+  "devDependencies": {
+    "typescript": "^5",
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "tailwindcss": "^4",
+    "@tailwindcss/postcss": "^4",
+    "gray-matter": "^4.0.3",
+    "glob": "^11.0.0"
+  }
+}

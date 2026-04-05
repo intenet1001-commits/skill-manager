@@ -1,0 +1,17 @@
+{"t":0,"agent":"ad18a63","agent_type":"Explore","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"a6f519f","agent_type":"Explore","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"a6f519f","agent_type":"Explore","event":"agent_stop","success":true,"duration_ms":83562}
+{"t":0,"agent":"ad18a63","agent_type":"Explore","event":"agent_stop","success":true,"duration_ms":95309}
+{"t":0,"agent":"abcd6ac","agent_type":"Explore","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"abcd6ac","agent_type":"Explore","event":"agent_stop","success":true,"duration_ms":29788}
+{"t":0,"agent":"a7c5a90","agent_type":"unknown","event":"agent_stop","success":true}
+{"t":0,"agent":"ac8c48d","agent_type":"session-wrap:doc-updater","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"a3c04c5","agent_type":"session-wrap:automation-scout","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"ac566e4","agent_type":"session-wrap:learning-extractor","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"ae5e7a9","agent_type":"session-wrap:followup-suggester","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"ac8c48d","agent_type":"session-wrap:doc-updater","event":"agent_stop","success":true,"duration_ms":46507}
+{"t":0,"agent":"a3c04c5","agent_type":"session-wrap:automation-scout","event":"agent_stop","success":true,"duration_ms":77891}
+{"t":0,"agent":"ac566e4","agent_type":"session-wrap:learning-extractor","event":"agent_stop","success":true,"duration_ms":98938}
+{"t":0,"agent":"ae5e7a9","agent_type":"session-wrap:followup-suggester","event":"agent_stop","success":true,"duration_ms":138922}
+{"t":0,"agent":"ab3b991","agent_type":"session-wrap:duplicate-checker","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"ab3b991","agent_type":"session-wrap:duplicate-checker","event":"agent_stop","success":true,"duration_ms":107695}

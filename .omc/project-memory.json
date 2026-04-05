@@ -1,0 +1,224 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1775320153446,
+  "projectRoot": "/Users/gwanli/Documents/GitHub/myproduct_v4/Skill_manager_1",
+  "techStack": {
+    "languages": [
+      {
+        "name": "JavaScript/TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "package.json"
+        ]
+      },
+      {
+        "name": "TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "tsconfig.json"
+        ]
+      }
+    ],
+    "frameworks": [
+      {
+        "name": "next",
+        "version": "15.3.0",
+        "category": "fullstack"
+      },
+      {
+        "name": "react",
+        "version": "19.0.0",
+        "category": "frontend"
+      },
+      {
+        "name": "react-dom",
+        "version": "19.0.0",
+        "category": "frontend"
+      }
+    ],
+    "packageManager": "npm",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": "npm run build",
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": "npm run dev",
+    "scripts": {
+      "predev": "node scripts/build-index.mjs",
+      "dev": "next dev -p 9010",
+      "prebuild": "node scripts/build-index.mjs",
+      "build": "next build",
+      "build-index": "node scripts/build-index.mjs",
+      "start": "next start -p 9010"
+    }
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "app",
+      "components",
+      "lib",
+      "public",
+      "scripts"
+    ],
+    "gitBranches": null
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "app": {
+      "path": "app",
+      "purpose": "Application code",
+      "fileCount": 3,
+      "lastAccessed": 1775320153422,
+      "keyFiles": [
+        "globals.css",
+        "layout.tsx",
+        "page.tsx"
+      ]
+    },
+    "components": {
+      "path": "components",
+      "purpose": "UI components",
+      "fileCount": 5,
+      "lastAccessed": 1775320153422,
+      "keyFiles": [
+        "Dashboard.tsx",
+        "FilterPanel.tsx",
+        "SearchBar.tsx",
+        "SkillCard.tsx",
+        "StatsBar.tsx"
+      ]
+    },
+    "lib": {
+      "path": "lib",
+      "purpose": "Library code",
+      "fileCount": 1,
+      "lastAccessed": 1775320153422,
+      "keyFiles": [
+        "types.ts"
+      ]
+    },
+    "public": {
+      "path": "public",
+      "purpose": "Public files",
+      "fileCount": 1,
+      "lastAccessed": 1775320153427,
+      "keyFiles": [
+        "skills-index.json"
+      ]
+    },
+    "scripts": {
+      "path": "scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 2,
+      "lastAccessed": 1775320153427,
+      "keyFiles": [
+        "build-index.mjs",
+        "cli.mjs"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "",
+      "accessCount": 15,
+      "lastAccessed": 1775322002824,
+      "type": "directory"
+    },
+    {
+      "path": "package.json",
+      "accessCount": 11,
+      "lastAccessed": 1775322176583,
+      "type": "file"
+    },
+    {
+      "path": "scripts/cli.mjs",
+      "accessCount": 5,
+      "lastAccessed": 1775348541816,
+      "type": "file"
+    },
+    {
+      "path": "TODOS.md",
+      "accessCount": 4,
+      "lastAccessed": 1775322217214,
+      "type": "file"
+    },
+    {
+      "path": "components/FilterPanel.tsx",
+      "accessCount": 3,
+      "lastAccessed": 1775348553673,
+      "type": "file"
+    },
+    {
+      "path": "components/SkillCard.tsx",
+      "accessCount": 3,
+      "lastAccessed": 1775348554294,
+      "type": "file"
+    },
+    {
+      "path": "app/page.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1775321981559,
+      "type": "file"
+    },
+    {
+      "path": "실행.command",
+      "accessCount": 2,
+      "lastAccessed": 1775321985624,
+      "type": "file"
+    },
+    {
+      "path": "components/Dashboard.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1775321985752,
+      "type": "file"
+    },
+    {
+      "path": "components/StatsBar.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1775321995963,
+      "type": "file"
+    },
+    {
+      "path": "components/SearchBar.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1775321996371,
+      "type": "file"
+    },
+    {
+      "path": "app/globals.css",
+      "accessCount": 1,
+      "lastAccessed": 1775320993706,
+      "type": "file"
+    },
+    {
+      "path": "lib/types.ts",
+      "accessCount": 1,
+      "lastAccessed": 1775321986499,
+      "type": "file"
+    },
+    {
+      "path": "app/layout.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1775322002251,
+      "type": "file"
+    },
+    {
+      "path": "README.md",
+      "accessCount": 1,
+      "lastAccessed": 1775348702583,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}

@@ -1,0 +1,80 @@
+{
+  "agents": [
+    {
+      "agent_id": "ad18a639f6dea215d",
+      "agent_type": "Explore",
+      "started_at": "2026-04-04T15:59:45.666Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-04-04T16:01:20.975Z",
+      "duration_ms": 95309
+    },
+    {
+      "agent_id": "a6f519faf93b77a87",
+      "agent_type": "Explore",
+      "started_at": "2026-04-04T15:59:49.681Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-04-04T16:01:13.243Z",
+      "duration_ms": 83562
+    },
+    {
+      "agent_id": "abcd6ac251d9b2bd6",
+      "agent_type": "Explore",
+      "started_at": "2026-04-04T16:24:20.295Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-04-04T16:24:50.083Z",
+      "duration_ms": 29788
+    },
+    {
+      "agent_id": "ac8c48df7a9450034",
+      "agent_type": "session-wrap:doc-updater",
+      "started_at": "2026-04-04T16:59:11.729Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-04-04T16:59:58.236Z",
+      "duration_ms": 46507
+    },
+    {
+      "agent_id": "a3c04c5c041e2b63c",
+      "agent_type": "session-wrap:automation-scout",
+      "started_at": "2026-04-04T16:59:16.024Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-04-04T17:00:33.915Z",
+      "duration_ms": 77891
+    },
+    {
+      "agent_id": "ac566e41fc64e52a8",
+      "agent_type": "session-wrap:learning-extractor",
+      "started_at": "2026-04-04T16:59:21.541Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-04-04T17:01:00.479Z",
+      "duration_ms": 98938
+    },
+    {
+      "agent_id": "ae5e7a94546cc615d",
+      "agent_type": "session-wrap:followup-suggester",
+      "started_at": "2026-04-04T16:59:29.748Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-04-04T17:01:48.670Z",
+      "duration_ms": 138922
+    },
+    {
+      "agent_id": "ab3b991318ee3c7e0",
+      "agent_type": "session-wrap:duplicate-checker",
+      "started_at": "2026-04-04T17:02:06.515Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-04-04T17:03:54.210Z",
+      "duration_ms": 107695
+    }
+  ],
+  "total_spawned": 8,
+  "total_completed": 8,
+  "total_failed": 0,
+  "last_updated": "2026-04-04T17:03:54.312Z"
+}
