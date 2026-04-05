@@ -65,10 +65,11 @@ export function AIPanel() {
   const [showProjectPicker, setShowProjectPicker] = useState(false)
   const [pickerSearch, setPickerSearch] = useState('')
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([])
-  const [pickingFolder, setPickingFolder] = useState(false)
+  const [pickingFolder] = useState(false) // kept for type compat, unused
   const cancelRef = useRef<(() => void) | null>(null)
   const pickerSearchRef = useRef<HTMLInputElement>(null)
   const pickerRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     setHistory(loadHistory())
@@ -93,20 +94,38 @@ export function AIPanel() {
     if (showProjectPicker) setTimeout(() => pickerSearchRef.current?.focus(), 50)
   }, [showProjectPicker])
 
-  async function handlePickFolder() {
-    setPickingFolder(true)
-    try {
-      const res = await fetch('/api/pick-folder')
-      if (res.ok) {
-        const { path } = await res.json()
-        if (path) {
-          setPickerSearch(path)
-          await loadProjectContext(path)
-        }
+  function handlePickFolder() {
+    // Use browser-native directory picker (more reliable than server-side osascript)
+    fileInputRef.current?.click()
+  }
+
+  function handleFileInputChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+    const file = files[0]
+    // Chrome/Chromium exposes the absolute path via non-standard file.path
+    const absPath = (file as unknown as { path?: string }).path
+    if (absPath && file.webkitRelativePath) {
+      // Reconstruct the folder's absolute path:
+      // absPath = "/abs/path/to/Folder/sub/file.txt"
+      // webkitRelativePath = "Folder/sub/file.txt"
+      // folderPath = absPath minus webkitRelativePath + folderName
+      const folderName = file.webkitRelativePath.split('/')[0]
+      const prefix = absPath.slice(0, absPath.length - file.webkitRelativePath.length)
+      const folderPath = (prefix + folderName).replace(/\/+$/, '')
+      loadProjectContext(folderPath)
+    } else {
+      // Fallback: match folder name against recent projects
+      const folderName = file.webkitRelativePath?.split('/')[0] ?? file.name
+      const match = recentProjects.find(p => p.name === folderName)
+      if (match) {
+        loadProjectContext(match.path)
+      } else {
+        setPathError(`"${folderName}" 폴더를 최근 프로젝트에서 찾을 수 없습니다. 경로를 직접 입력해주세요.`)
+        setShowProjectPicker(true)
       }
-      // cancelled → do nothing, user stays in picker
-    } catch { /* ignore */ }
-    finally { setPickingFolder(false) }
+    }
+    e.target.value = '' // reset so same folder can be re-picked
   }
 
   async function loadProjectContext(path: string) {
@@ -373,21 +392,29 @@ export function AIPanel() {
                 )}
               </div>
 
+              {/* Hidden native directory picker */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                // @ts-expect-error — webkitdirectory is not in React types
+                webkitdirectory=""
+                style={{ display: 'none' }}
+                onChange={handleFileInputChange}
+              />
+
               {/* Browse button */}
               <button
                 onClick={handlePickFolder}
-                disabled={pickingFolder || loadingContext}
+                disabled={loadingContext}
                 title="폴더 직접 선택"
                 style={{
                   padding: '7px 10px', borderRadius: '7px', flexShrink: 0,
                   border: '1px solid var(--border)', background: 'var(--surface)',
-                  color: 'var(--text-muted)', cursor: pickingFolder ? 'wait' : 'pointer',
+                  color: 'var(--text-muted)', cursor: 'pointer',
                   display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '13px',
                 }}
               >
-                {pickingFolder
-                  ? <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>⟳</span>
-                  : <span>📂</span>}
+                <span>📂</span>
               </button>
 
               {/* Confirm button (visible when path is typed) */}
