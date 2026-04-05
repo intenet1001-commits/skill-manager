@@ -58,6 +58,7 @@ export function AIPanel() {
   const [copied, setCopied] = useState<string | null>(null)
   const [selectedSkills, setSelectedSkills] = useState<Set<number>>(new Set())
   const [runStatus, setRunStatus] = useState<string | null>(null)
+  const [skipPerms, setSkipPerms] = useState(false)
   const [project, setProject] = useState<ProjectContext | null>(null)
   const [pathError, setPathError] = useState<string | null>(null)
   const [loadingContext, setLoadingContext] = useState(false)
@@ -236,7 +237,7 @@ export function AIPanel() {
       const res = await fetch('/api/run-skills', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cmds, projectPath: project?.path }),
+        body: JSON.stringify({ cmds, projectPath: project?.path, skipPerms }),
       })
       if (res.ok) {
         setRunStatus(`✓ ${cmds.length}개 실행 중`)
@@ -541,16 +542,38 @@ export function AIPanel() {
               전체 선택
             </label>
             {selectedSkills.size > 0 && (
-              <button
-                onClick={runSelected}
-                style={{
-                  padding: '4px 14px', borderRadius: '6px', fontSize: '12px', fontWeight: 600,
-                  background: 'var(--primary)', color: '#fff', border: 'none', cursor: 'pointer',
-                  display: 'inline-flex', alignItems: 'center', gap: '5px',
+              <>
+                <label style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '4px',
+                  fontSize: '11px', color: skipPerms ? '#f59e0b' : 'var(--text-muted)',
+                  cursor: 'pointer', userSelect: 'none',
+                  padding: '3px 8px', borderRadius: '5px',
+                  border: `1px solid ${skipPerms ? '#f59e0b' : 'var(--border)'}`,
+                  background: skipPerms ? 'rgba(245,158,11,0.08)' : 'none',
+                  transition: 'all 0.15s',
                 }}
-              >
-                ▶ {selectedSkills.size}개 실행
-              </button>
+                  title="--dangerously-skip-permissions 플래그로 실행 (권한 확인 없이 자동 실행)"
+                >
+                  <input
+                    type="checkbox"
+                    checked={skipPerms}
+                    onChange={e => setSkipPerms(e.target.checked)}
+                    style={{ cursor: 'pointer', accentColor: '#f59e0b' }}
+                  />
+                  ⚡ 권한 스킵
+                </label>
+                <button
+                  onClick={runSelected}
+                  style={{
+                    padding: '4px 14px', borderRadius: '6px', fontSize: '12px', fontWeight: 600,
+                    background: skipPerms ? '#f59e0b' : 'var(--primary)',
+                    color: '#fff', border: 'none', cursor: 'pointer',
+                    display: 'inline-flex', alignItems: 'center', gap: '5px',
+                  }}
+                >
+                  ▶ {selectedSkills.size}개 실행{skipPerms ? ' (무제한)' : ''}
+                </button>
+              </>
             )}
             {runStatus && (
               <span style={{ fontSize: '12px', color: runStatus.startsWith('❌') ? '#ef4444' : 'var(--primary)' }}>

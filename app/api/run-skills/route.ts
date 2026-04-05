@@ -4,15 +4,15 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 
 export async function POST(req: Request) {
-  const { cmds, projectPath } = await req.json() as { cmds: string[]; projectPath?: string }
+  const { cmds, projectPath, skipPerms } = await req.json() as { cmds: string[]; projectPath?: string; skipPerms?: boolean }
   if (!Array.isArray(cmds) || cmds.length === 0) {
     return Response.json({ error: 'no commands' }, { status: 400 })
   }
 
   // Build a shell script that opens claude in the project dir with each command
   const cdLine = projectPath ? `cd '${projectPath.replace(/'/g, "'\\''")}'` : 'true'
-  // Pass first cmd as the initial message; for multiple cmds, run sequentially
-  const claudeLines = cmds.map(cmd => `claude "${cmd.replace(/"/g, '\\"')}"`).join('\n')
+  const claudeFlag = skipPerms ? '--dangerously-skip-permissions' : ''
+  const claudeLines = cmds.map(cmd => `claude ${claudeFlag} "${cmd.replace(/"/g, '\\"')}"`).join('\n')
 
   const script = `#!/bin/bash\n${cdLine}\n${claudeLines}\n`
   const tmpFile = join(tmpdir(), `skill-run-${Date.now()}.sh`)
