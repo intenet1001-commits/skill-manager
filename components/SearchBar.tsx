@@ -20,6 +20,7 @@ export function SearchBar({ value, onChange, placeholder = 'Search skills by nam
         type="text"
         value={value}
         onChange={e => onChange(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Escape') onChange('') }}
         placeholder={placeholder}
         style={{
           background: 'var(--surface)',

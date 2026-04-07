@@ -19,5 +19,7 @@ export interface Filters {
   plugins: string[]
   classifications: string[]
   pdcaPhases: string[]
+  marketplaces: string[]
   userInvocableOnly: boolean
+  agentTeamsOnly: boolean
 }

@@ -7,6 +7,7 @@ interface ProjectContext {
   name: string
   techs: string[]
   summary: string
+  claudeMd: string | null
 }
 
 function detectTechs(projectPath: string): { techs: string[]; deps: string[] } {
@@ -66,14 +67,16 @@ function detectTechs(projectPath: string): { techs: string[]; deps: string[] } {
   return { techs: [...new Set(techs)], deps }
 }
 
-function readClaudeMd(projectPath: string): string {
+function readClaudeMd(projectPath: string): string | null {
   const claudePath = join(projectPath, 'CLAUDE.md')
-  if (!existsSync(claudePath)) return ''
+  if (!existsSync(claudePath)) return null
   try {
     const content = readFileSync(claudePath, 'utf-8')
-    // Return first 300 chars of CLAUDE.md as context
-    return content.slice(0, 300).replace(/\n+/g, ' ')
-  } catch { return '' }
+    if (content.length > 2000) {
+      return content.slice(0, 2000) + '\n...(truncated)'
+    }
+    return content
+  } catch { return null }
 }
 
 export async function GET(req: NextRequest) {
@@ -85,13 +88,12 @@ export async function GET(req: NextRequest) {
 
   const name = basename(projectPath)
   const { techs, deps } = detectTechs(projectPath)
-  const claudeHint = readClaudeMd(projectPath)
+  const claudeMd = readClaudeMd(projectPath)
 
   let summary = `프로젝트: ${name}`
   if (techs.length > 0) summary += ` | 기술: ${techs.join(', ')}`
   if (deps.length > 0) summary += ` | 주요 패키지: ${deps.join(', ')}`
-  if (claudeHint) summary += ` | CLAUDE.md: ${claudeHint}`
 
-  const context: ProjectContext = { path: projectPath, name, techs, summary }
+  const context: ProjectContext = { path: projectPath, name, techs, summary, claudeMd }
   return Response.json(context)
 }

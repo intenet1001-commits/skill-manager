@@ -2,7 +2,43 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 import { globSync } from 'glob'
-import matter from 'gray-matter'
+
+// Minimal frontmatter parser — avoids gray-matter/js-yaml (broken on Node 22)
+function matter(content) {
+  const fm = /^---\r?\n([\s\S]*?)\r?\n---(\r?\n|$)/
+  const match = content.match(fm)
+  if (!match) return { data: {}, content }
+  const yamlBlock = match[1]
+  const data = {}
+  let currentKey = null
+  let arrayMode = false
+  for (const raw of yamlBlock.split('\n')) {
+    const line = raw.replace(/\r$/, '')
+    // List item under current key
+    if (arrayMode && /^\s+-\s/.test(line)) {
+      const val = line.replace(/^\s+-\s+/, '').replace(/^['"]|['"]$/g, '')
+      data[currentKey].push(val)
+      continue
+    }
+    const kv = line.match(/^([a-zA-Z0-9_-]+)\s*:\s*(.*)$/)
+    if (!kv) { arrayMode = false; continue }
+    currentKey = kv[1]
+    const raw_val = kv[2].trim()
+    if (raw_val === '' || raw_val === null) {
+      data[currentKey] = []
+      arrayMode = true
+    } else if (raw_val === 'true') {
+      data[currentKey] = true; arrayMode = false
+    } else if (raw_val === 'false') {
+      data[currentKey] = false; arrayMode = false
+    } else if (raw_val === 'null' || raw_val === '~') {
+      data[currentKey] = null; arrayMode = false
+    } else {
+      data[currentKey] = raw_val.replace(/^['"]|['"]$/g, ''); arrayMode = false
+    }
+  }
+  return { data, content: content.slice(match[0].length) }
+}
 
 const HOME = homedir()
 const PLUGIN_CACHE = join(HOME, '.claude/plugins/cache')
@@ -138,6 +174,44 @@ function main() {
       }
     } catch {
       // skip
+    }
+  }
+
+  // 3. Local dev plugins (~/cs_plugins/plugins/)
+  const LOCAL_PLUGINS_DIR = join(HOME, 'cs_plugins/plugins')
+  if (existsSync(LOCAL_PLUGINS_DIR)) {
+    const localPaths = globSync(join(LOCAL_PLUGINS_DIR, '*/skills/*/SKILL.md'), { nodir: true })
+    console.log(`Found ${localPaths.length} local dev SKILL.md files`)
+    for (const skillPath of localPaths) {
+      try {
+        const rel = skillPath.slice(LOCAL_PLUGINS_DIR.length + 1)
+        const parts = rel.split('/')
+        const pluginName = parts[0]
+        const skillName = parts[2]
+        const content = readFileSync(skillPath, 'utf-8')
+        const { data } = matter(content)
+        const name = data.name || skillName
+        const description = typeof data.description === 'string' ? data.description : ''
+        const entry = {
+          name,
+          pluginName,
+          marketplace: 'local',
+          description: description.trim(),
+          triggers: extractTriggers(description),
+          classification: data.classification || null,
+          pdcaPhase: data['pdca-phase'] || null,
+          userInvocable: data['user-invocable'] !== false,
+          argumentHint: data['argument-hint'] || null,
+          agent: data.agent || null,
+          deprecationRisk: null,
+          nextSkill: null,
+          invocationCommand: `/${pluginName}:${name}`,
+          source: 'local',
+          isTemp: false,
+        }
+        const key = `${pluginName}:${name}`
+        if (!skills.has(key)) skills.set(key, entry)
+      } catch { /* skip */ }
     }
   }
 

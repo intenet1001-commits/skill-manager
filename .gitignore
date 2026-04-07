@@ -4,3 +4,4 @@ public/skills-index.json
 .env*
 .bkit/
 .omc/
+.gstack/
