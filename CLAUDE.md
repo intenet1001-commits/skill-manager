@@ -10,6 +10,22 @@ Next.js 15 app with Fuse.js fuzzy search, multi-filter, and CLI.
 - Global CLI: `npm link` once, then `skill-manager search/list/info/plugins`
 - Index build: `npm run build-index` (auto-runs via predev/prebuild hook)
 
+## Index Builder (build-index.mjs)
+
+Entry point: `scripts/build-index.mjs`. Scans 5 sources in priority order (first-write-wins per key `pluginName:skillName`) and writes `public/skills-index.json`. Cache paths are mtime-sorted descending so the newest cached version of a skill wins.
+
+### Scan sections (in order)
+1. **Plugin cache** (`~/.claude/plugins/cache/**/skills/*/SKILL.md`) — primary source; filtered by `isPluginEnabled()` and managed-marketplace source-of-truth check
+2. **Standalone flat** (`~/.claude/skills/*/SKILL.md`) — skips symlinks pointing into `~/.claude/skills/` via `isSymlinkInto()` (gstack/impeccable symlinks are covered by section 3)
+3. **Standalone grouped** (`~/.claude/skills/*/*/SKILL.md`) — e.g. `~/.claude/skills/gstack/<skill>/SKILL.md`; excludes `.cursor/` subtrees and `*.bak/old/backup` dirs
+4. **Local dev** (`~/cs_plugins/plugins/*/skills/*/SKILL.md`) — always included if the dir exists; no enabledPlugins filter
+5. **Marketplace definitions** (`~/.claude/plugins/marketplaces/*/plugins/*/skills/*/SKILL.md`) — only plugins present in cache (`cachedPluginKeys`) are indexed; cache/local entries take priority on collision
+
+### Filtering logic
+- **`isPluginEnabled()`**: only excludes plugins explicitly set to `false` in `enabledPlugins` (`~/.claude/settings.json`). Absent key = not explicitly disabled = included (prevents freshly installed plugins from being filtered out).
+- **Managed marketplace source-of-truth** (`managedMarketplaces` + `marketplaceDefinedPlugins`): if `~/.claude/plugins/marketplaces/<name>/plugins/` exists, only plugins listed there are allowed from that marketplace's cache. Old cached versions not in the marketplace (e.g. v1 when marketplace defines v2/v3) are excluded.
+- **Symlink dedup** (`isSymlinkInto(filePath, STANDALONE_SKILLS_DIR)`): detects gstack-style symlinks in section 2 so section 3 is the single indexed source for those skills. Works on broken symlinks via `lstatSync` (unlike `statSync`).
+
 ## AI Panel (Recommend API)
 
 - Entry point: `app/api/recommend/route.ts`
