@@ -11,6 +11,7 @@ import { AIPanel } from './AIPanel'
 import { SourcesPanel } from './SourcesPanel'
 import { CommandPalette } from './CommandPalette'
 import { HelpModal } from './HelpModal'
+import { ClaudeAuthTip } from './ClaudeAuthTip'
 
 type Mode = 'browse' | 'ai' | 'sources'
 
@@ -214,6 +215,7 @@ export function Dashboard() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
             <span style={{ fontSize: '18px' }}>🎯</span>
             <span style={{ fontWeight: 700, fontSize: '16px', color: 'var(--text)' }}>Skill Manager</span>
+            <ClaudeAuthTip />
           </div>
 
           {/* Mode tabs */}
