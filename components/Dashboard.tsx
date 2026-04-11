@@ -10,6 +10,7 @@ import { StatsBar } from './StatsBar'
 import { AIPanel } from './AIPanel'
 import { SourcesPanel } from './SourcesPanel'
 import { CommandPalette } from './CommandPalette'
+import { HelpModal } from './HelpModal'
 
 type Mode = 'browse' | 'ai' | 'sources'
 
@@ -32,6 +33,7 @@ export function Dashboard() {
   const [mode, setMode] = useState<Mode>('browse')
   const [query, setQuery] = useState('')
   const [showPalette, setShowPalette] = useState(false)
+  const [showHelp, setShowHelp] = useState(false)
   const [filters, setFilters] = useState<Filters>({
     plugins: [],
     classifications: [],
@@ -197,6 +199,7 @@ export function Dashboard() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
       {showPalette && <CommandPalette skills={skills} fuse={fuse} onClose={() => setShowPalette(false)} />}
+      {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       {/* Header */}
       <header style={{
         borderBottom: '1px solid var(--border)',
@@ -253,6 +256,19 @@ export function Dashboard() {
             }}
           >
             ⌘K
+          </button>
+
+          {/* Help button */}
+          <button
+            onClick={() => setShowHelp(true)}
+            title="사용 가이드"
+            style={{
+              padding: '4px 9px', borderRadius: '6px', border: '1px solid var(--border)',
+              background: 'var(--surface-2)', color: 'var(--text-muted)', fontSize: '13px',
+              cursor: 'pointer', flexShrink: 0, fontWeight: 600,
+            }}
+          >
+            ?
           </button>
         </div>
 
