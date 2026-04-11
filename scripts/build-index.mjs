@@ -44,6 +44,32 @@ const HOME = homedir()
 const PLUGIN_CACHE = join(HOME, '.claude/plugins/cache')
 const STANDALONE_SKILLS_DIR = join(HOME, '.claude/skills')
 
+// Read enabledPlugins from settings.json.
+// Returns a Map<"plugin@marketplace", boolean> or null if settings unavailable.
+// null means "no filter — include everything" (graceful fallback).
+function loadEnabledPlugins() {
+  const settingsPath = join(HOME, '.claude/settings.json')
+  if (!existsSync(settingsPath)) return null
+  try {
+    const settings = JSON.parse(readFileSync(settingsPath, 'utf-8'))
+    const ep = settings.enabledPlugins
+    if (!ep || typeof ep !== 'object') return null
+    return new Map(Object.entries(ep))
+  } catch {
+    return null
+  }
+}
+
+// Returns true if a plugin should be included in the index.
+// Excludes only plugins explicitly set to false in enabledPlugins.
+// If enabledPlugins is null (unreadable) or key is absent → include.
+function isPluginEnabled(enabledPlugins, pluginName, marketplace) {
+  if (!enabledPlugins) return true
+  const key = `${pluginName}@${marketplace}`
+  if (!enabledPlugins.has(key)) return true  // not listed → include
+  return enabledPlugins.get(key) !== false && enabledPlugins.get(key) !== 'false'
+}
+
 const tempDirPluginCache = new Map()
 
 function getPluginForTempDir(tempDir) {
@@ -92,6 +118,14 @@ function extractTriggers(description) {
 
 function main() {
   const skills = new Map() // key -> entry (dedup: prefer non-temp)
+  const enabledPlugins = loadEnabledPlugins()
+
+  if (enabledPlugins) {
+    const disabledCount = [...enabledPlugins.entries()].filter(([, v]) => v === false || v === 'false').length
+    if (disabledCount > 0) {
+      console.log(`Filtering: ${disabledCount} disabled plugin(s) will be excluded from index`)
+    }
+  }
 
   // 1. Plugin skills
   const cachePaths = globSync(join(PLUGIN_CACHE, '**/skills/*/SKILL.md'), { nodir: true })
@@ -101,6 +135,9 @@ function main() {
     try {
       const { plugin, marketplace, skillName, isTemp } = parseCachePath(skillPath)
       if (!skillName) continue
+
+      // Skip plugins explicitly disabled in ~/.claude/settings.json enabledPlugins
+      if (!isTemp && !isPluginEnabled(enabledPlugins, plugin, marketplace)) continue
 
       const content = readFileSync(skillPath, 'utf-8')
       const { data } = matter(content)
