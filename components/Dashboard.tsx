@@ -52,10 +52,26 @@ export function Dashboard() {
   const [copyAllDone, setCopyAllDone] = useState(false)
 
   useEffect(() => {
-    fetch('/skills-index.json')
+    // 1. Load immediately from disk (no browser cache)
+    fetch('/skills-index.json', { cache: 'no-store' })
       .then(r => r.json())
       .then((data: SkillEntry[]) => { setSkills(data); setLoadingSkills(false) })
       .catch(() => setLoadingSkills(false))
+
+    // 2. Background rebuild: silently re-scan filesystem and update state if anything changed
+    //    This ensures deleted/added skills are reflected on every page load without manual ↺
+    fetch('/api/build-index', { method: 'POST' })
+      .then(r => r.json())
+      .then(result => {
+        if (!result.unchanged) {
+          // Index changed → re-fetch updated file and replace state (no full page reload)
+          fetch('/skills-index.json', { cache: 'no-store' })
+            .then(r => r.json())
+            .then((data: SkillEntry[]) => setSkills(data))
+            .catch(() => {})
+        }
+      })
+      .catch(() => {})
   }, [])
 
   const fuse = useMemo(() => new Fuse(skills, {

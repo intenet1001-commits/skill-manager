@@ -16,6 +16,13 @@ const nextConfig: NextConfig = {
         source: '/:path*',
         headers: securityHeaders,
       },
+      {
+        // skills-index.json is rebuilt dynamically — never serve stale from cache
+        source: '/skills-index.json',
+        headers: [
+          { key: 'Cache-Control', value: 'no-store, must-revalidate' },
+        ],
+      },
     ]
   },
 }
