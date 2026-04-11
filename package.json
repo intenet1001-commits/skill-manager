@@ -11,9 +11,15 @@
     "prebuild": "node scripts/build-index.mjs",
     "build": "next build",
     "build-index": "node scripts/build-index.mjs",
-    "start": "next start -p 9025"
+    "start": "next start -p 9025",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "analyze": "ANALYZE=true npm run build",
+    "watch": "node scripts/watch.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.88.0",
     "fuse.js": "^7.0.0",
     "lucide-react": "^0.511.0",
     "next": "^15.3.0",
@@ -21,14 +27,16 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@next/bundle-analyzer": "^16.2.3",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vitest/coverage-v8": "^4.1.4",
     "glob": "^11.0.0",
-    "gray-matter": "^4.0.3",
     "playwright": "^1.59.1",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.4"
   }
 }

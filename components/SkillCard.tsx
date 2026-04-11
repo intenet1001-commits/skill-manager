@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { SkillEntry } from '@/lib/types'
 
 
@@ -28,19 +28,31 @@ function Badge({ label, color }: { label: string; color: string }) {
 interface Props {
   skill: SkillEntry
   onRun?: (cmd: string) => void
+  selectionMode?: boolean
+  isSelected?: boolean
+  onToggleSelect?: () => void
 }
 
-export function SkillCard({ skill, onRun }: Props) {
+export function SkillCard({ skill, onRun, selectionMode, isSelected, onToggleSelect }: Props) {
   const [copied, setCopied] = useState(false)
   const [ran, setRan] = useState(false)
   const [expanded, setExpanded] = useState(false)
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const ranTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (copiedTimer.current) clearTimeout(copiedTimer.current)
+      if (ranTimer.current) clearTimeout(ranTimer.current)
+    }
+  }, [])
 
   function copy() {
     navigator.clipboard.writeText(skill.invocationCommand).then(() => {
       setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
+      if (copiedTimer.current) clearTimeout(copiedTimer.current)
+      copiedTimer.current = setTimeout(() => setCopied(false), 1500)
     }).catch(() => {
-      // Fallback: select text if clipboard API unavailable
       const el = document.createElement('textarea')
       el.value = skill.invocationCommand
       document.body.appendChild(el)
@@ -48,7 +60,8 @@ export function SkillCard({ skill, onRun }: Props) {
       document.execCommand('copy')
       document.body.removeChild(el)
       setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
+      if (copiedTimer.current) clearTimeout(copiedTimer.current)
+      copiedTimer.current = setTimeout(() => setCopied(false), 1500)
     })
   }
 
@@ -59,22 +72,46 @@ export function SkillCard({ skill, onRun }: Props) {
   const truncated = shortDesc.length > 120 && !expanded
 
   return (
-    <div style={{
-      background: 'var(--surface)',
-      border: '1px solid var(--border)',
-      borderRadius: '10px',
-      padding: '14px',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '10px',
-      transition: 'border-color 0.15s',
-    }}
-      onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--border-2)')}
-      onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border)')}
+    <div
+      onClick={selectionMode ? onToggleSelect : undefined}
+      style={{
+        position: 'relative',
+        background: isSelected ? 'rgba(99,102,241,0.04)' : 'var(--surface)',
+        border: `1px solid ${isSelected ? 'var(--primary)' : 'var(--border)'}`,
+        borderRadius: '10px',
+        padding: '14px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '10px',
+        transition: 'border-color 0.15s, box-shadow 0.15s, background 0.15s',
+        cursor: selectionMode ? 'pointer' : 'default',
+        boxShadow: isSelected ? '0 0 0 2px rgba(99,102,241,0.25)' : 'none',
+        userSelect: selectionMode ? 'none' : 'auto',
+      }}
+      onMouseEnter={e => {
+        if (!selectionMode) e.currentTarget.style.borderColor = 'var(--border-2)'
+      }}
+      onMouseLeave={e => {
+        if (!selectionMode && !isSelected) e.currentTarget.style.borderColor = 'var(--border)'
+      }}
     >
+      {/* Checkbox overlay in selection mode */}
+      {selectionMode && (
+        <div style={{
+          position: 'absolute', top: '10px', left: '10px', zIndex: 2,
+          width: '18px', height: '18px', borderRadius: '4px',
+          background: isSelected ? 'var(--primary)' : 'var(--surface)',
+          border: `2px solid ${isSelected ? 'var(--primary)' : 'var(--border-2)'}`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          transition: 'all 0.15s',
+          pointerEvents: 'none',
+        }}>
+          {isSelected && <span style={{ color: '#fff', fontSize: '11px', lineHeight: 1 }}>✓</span>}
+        </div>
+      )}
       {/* Top row: name + copy button */}
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ flex: 1, minWidth: 0, paddingLeft: selectionMode ? '26px' : 0, transition: 'padding 0.15s' }}>
           <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text)', marginBottom: '3px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {skill.name}
           </div>
@@ -88,7 +125,7 @@ export function SkillCard({ skill, onRun }: Props) {
         </div>
         <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
           <button
-            onClick={copy}
+            onClick={e => { e.stopPropagation(); copy() }}
             title="Copy command"
             aria-label={`Copy invocation command: ${skill.invocationCommand}`}
             style={{
@@ -106,7 +143,13 @@ export function SkillCard({ skill, onRun }: Props) {
           </button>
           {onRun && (
             <button
-              onClick={() => { onRun(skill.invocationCommand); setRan(true); setTimeout(() => setRan(false), 1500) }}
+              onClick={e => {
+                e.stopPropagation()
+                onRun(skill.invocationCommand)
+                setRan(true)
+                if (ranTimer.current) clearTimeout(ranTimer.current)
+                ranTimer.current = setTimeout(() => setRan(false), 1500)
+              }}
               title="Run in terminal"
               aria-label={`Run ${skill.invocationCommand}`}
               style={{
@@ -158,8 +201,8 @@ export function SkillCard({ skill, onRun }: Props) {
       {/* Triggers */}
       {skill.triggers.length > 0 && (
         <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-          {skill.triggers.slice(0, 6).map((t, i) => (
-            <span key={i} style={{
+          {skill.triggers.slice(0, 6).map((t) => (
+            <span key={t} style={{
               fontSize: '10px', padding: '1px 6px', borderRadius: '3px',
               background: 'var(--surface-2)', color: 'var(--text-dim)',
               border: '1px solid var(--border)',

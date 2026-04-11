@@ -1,6 +1,8 @@
-import { readdirSync, statSync, existsSync, readFileSync } from 'fs'
+import { readdirSync, statSync, existsSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
+import { detectTechs, isProject } from '@/lib/project-utils'
+import { checkOrigin, ORIGIN_FORBIDDEN } from '@/lib/check-origin'
 
 interface ProjectEntry {
   name: string
@@ -9,31 +11,9 @@ interface ProjectEntry {
   modifiedAt: number
 }
 
-const PROJECT_INDICATORS = ['package.json', 'pyproject.toml', 'Cargo.toml', 'go.mod', 'composer.json']
-
-function detectTechs(dir: string): string[] {
-  const techs: string[] = []
-  if (existsSync(join(dir, 'package.json'))) {
-    try {
-      const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf-8'))
-      const deps = { ...pkg.dependencies, ...pkg.devDependencies }
-      if (deps['next']) techs.push('Next.js')
-      else if (deps['react']) techs.push('React')
-      if (deps['typescript']) techs.push('TS')
-      if (deps['electron']) techs.push('Electron')
-      if (deps['vue']) techs.push('Vue')
-      if (!techs.length) techs.push('Node')
-    } catch { techs.push('Node') }
-  }
-  if (existsSync(join(dir, 'pyproject.toml')) || existsSync(join(dir, 'requirements.txt'))) techs.push('Python')
-  if (existsSync(join(dir, 'Cargo.toml'))) techs.push('Rust')
-  if (existsSync(join(dir, 'go.mod'))) techs.push('Go')
-  return techs
-}
-
-function isProject(dir: string): boolean {
-  return PROJECT_INDICATORS.some(f => existsSync(join(dir, f)))
-}
+interface RecentCache { results: ProjectEntry[]; ts: number }
+let recentCache: RecentCache | null = null
+const RECENT_CACHE_TTL = 60_000 // 60 seconds
 
 function scanDir(base: string, maxDepth = 1): ProjectEntry[] {
   if (!existsSync(base)) return []
@@ -50,7 +30,7 @@ function scanDir(base: string, maxDepth = 1): ProjectEntry[] {
           entries.push({
             name: item.name,
             path: full,
-            techs: detectTechs(full),
+            techs: detectTechs(full).techs,
             modifiedAt: stat.mtimeMs,
           })
         } catch { /* skip */ }
@@ -63,7 +43,11 @@ function scanDir(base: string, maxDepth = 1): ProjectEntry[] {
   return entries
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  if (!checkOrigin(req)) return ORIGIN_FORBIDDEN
+  if (recentCache && Date.now() - recentCache.ts < RECENT_CACHE_TTL) {
+    return Response.json(recentCache.results)
+  }
   const home = homedir()
   const searchRoots = [
     join(home, 'Documents', 'GitHub'),
@@ -88,5 +72,7 @@ export async function GET() {
 
   // Sort by recently modified, limit to 30
   all.sort((a, b) => b.modifiedAt - a.modifiedAt)
-  return Response.json(all.slice(0, 30))
+  const results = all.slice(0, 30)
+  recentCache = { results, ts: Date.now() }
+  return Response.json(results)
 }

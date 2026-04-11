@@ -136,7 +136,7 @@ function main() {
     }
   }
 
-  // 2. Standalone skills
+  // 2. Standalone skills (~/.claude/skills/<skill>/SKILL.md)
   const standalonePaths = globSync(join(STANDALONE_SKILLS_DIR, '*/SKILL.md'), { nodir: true })
   console.log(`Found ${standalonePaths.length} standalone SKILL.md files`)
 
@@ -169,6 +169,57 @@ function main() {
       }
 
       const key = `standalone:${name}`
+      if (!skills.has(key)) {
+        skills.set(key, entry)
+      }
+    } catch {
+      // skip
+    }
+  }
+
+  // 2b. Grouped standalone skills (~/.claude/skills/<group>/<skill>/SKILL.md)
+  //     e.g. gstack organises skills under ~/.claude/skills/gstack/<skill>/SKILL.md
+  const groupedPaths = globSync(join(STANDALONE_SKILLS_DIR, '*/*/SKILL.md'), { nodir: true })
+    .filter(p => {
+      // Exclude .cursor sub-trees and backup dirs (*.bak, *.old, *.backup)
+      const parts = p.slice(STANDALONE_SKILLS_DIR.length + 1).split('/')
+      const groupDir = parts[0]
+      return !p.includes('/.cursor/') && !/\.(bak|old|backup)$/.test(groupDir)
+    })
+  console.log(`Found ${groupedPaths.length} grouped standalone SKILL.md files`)
+
+  for (const skillPath of groupedPaths) {
+    try {
+      const rel = skillPath.slice(STANDALONE_SKILLS_DIR.length + 1)
+      const parts = rel.split('/')
+      const groupName = parts[0]   // e.g. "gstack"
+      const skillDir = parts[1]    // e.g. "pair-agent"
+      const content = readFileSync(skillPath, 'utf-8')
+      const { data } = matter(content)
+
+      const name = data.name || skillDir
+      const description = typeof data.description === 'string' ? data.description : ''
+      const triggers = extractTriggers(description)
+
+      const entry = {
+        name,
+        pluginName: groupName,
+        marketplace: 'standalone',
+        description: description.trim(),
+        triggers,
+        classification: data.classification || null,
+        pdcaPhase: data['pdca-phase'] || null,
+        userInvocable: data['user-invocable'] !== false,
+        argumentHint: data['argument-hint'] || null,
+        agent: data.agent || null,
+        deprecationRisk: null,
+        nextSkill: null,
+        invocationCommand: `/${groupName}:${name}`,
+        source: 'standalone',
+        isTemp: false,
+      }
+
+      const key = `${groupName}:${name}`
       if (!skills.has(key)) {
         skills.set(key, entry)
       }

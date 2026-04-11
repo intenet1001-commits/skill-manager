@@ -5,3 +5,11 @@ public/skills-index.json
 .bkit/
 .omc/
 .gstack/
+
+# Test artifacts
+tests/results/
+tests/screenshots/
+tests/debug_*.py
+
+# Root-level screenshot dumps
+/*.png

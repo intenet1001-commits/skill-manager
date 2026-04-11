@@ -1,8 +1,9 @@
-import { execSync } from 'child_process'
-import { readdirSync, existsSync, statSync, readFileSync, writeFileSync } from 'fs'
+import { execSync, execFileSync } from 'child_process'
+import { readdirSync, existsSync, statSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 import { NextRequest } from 'next/server'
+import { checkOrigin, ORIGIN_FORBIDDEN } from '@/lib/check-origin'
 
 const MANUAL_SOURCES_PATH = join(homedir(), '.claude', 'skills-sources.json')
 
@@ -32,7 +33,8 @@ function isDir(p: string) {
   try { return statSync(p).isDirectory() } catch { return false }
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  if (!checkOrigin(req)) return ORIGIN_FORBIDDEN
   const home = homedir()
   const sources: PluginSource[] = []
 
@@ -125,6 +127,7 @@ export async function GET() {
 
 // PUT — save a new manual source
 export async function PUT(req: NextRequest) {
+  if (!checkOrigin(req)) return ORIGIN_FORBIDDEN
   const body = await req.json() as { name: string; url: string; type: string }
   if (!body.url || !body.name) return Response.json({ error: 'missing fields' }, { status: 400 })
   const existing = loadManualSources()
@@ -134,12 +137,14 @@ export async function PUT(req: NextRequest) {
     writeFileSync(MANUAL_SOURCES_PATH, JSON.stringify(updated, null, 2), 'utf-8')
     return Response.json({ ok: true, sources: updated })
   } catch (e) {
-    return Response.json({ error: String(e) }, { status: 500 })
+    console.error('[plugin-sources] PUT write failed:', e)
+    return Response.json({ error: 'write_failed' }, { status: 500 })
   }
 }
 
 // DELETE — remove a manual source by URL
 export async function DELETE(req: NextRequest) {
+  if (!checkOrigin(req)) return ORIGIN_FORBIDDEN
   const { url } = await req.json() as { url: string }
   if (!url) return Response.json({ error: 'missing url' }, { status: 400 })
   const updated = loadManualSources().filter(s => s.url !== url)
@@ -147,6 +152,115 @@ export async function DELETE(req: NextRequest) {
     writeFileSync(MANUAL_SOURCES_PATH, JSON.stringify(updated, null, 2), 'utf-8')
     return Response.json({ ok: true })
   } catch (e) {
-    return Response.json({ error: String(e) }, { status: 500 })
+    console.error('[plugin-sources] DELETE write failed:', e)
+    return Response.json({ error: 'write_failed' }, { status: 500 })
   }
+}
+
+// POST — install a GitHub repo via git clone/pull
+export async function POST(req: NextRequest) {
+  if (!checkOrigin(req)) return ORIGIN_FORBIDDEN
+
+  const body = await req.json() as { url: string; name: string; type: 'marketplace' | 'plugin' | 'skill' }
+  const { url, name, type } = body
+
+  // Validate URL
+  if (!url || !/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+(?:\.git)?$/i.test(url)) {
+    return Response.json({ error: 'invalid_url' }, { status: 400 })
+  }
+
+  // Validate name
+  if (!name || !/^[\w][\w.-]*$/.test(name) || name.includes('..')) {
+    return Response.json({ error: 'invalid_name' }, { status: 400 })
+  }
+
+  const home = homedir()
+
+  // Determine target directory
+  let targetDir: string
+  if (type === 'marketplace') {
+    targetDir = join(home, '.claude', 'plugins', 'marketplaces', name)
+  } else if (type === 'plugin') {
+    targetDir = join(home, '.claude', 'plugins', name)
+  } else {
+    targetDir = join(home, '.claude', 'skills', name)
+  }
+
+  // Clone or pull
+  let action: 'cloned' | 'pulled'
+  try {
+    if (existsSync(join(targetDir, '.git'))) {
+      execFileSync('git', ['-C', targetDir, 'pull', '--ff-only'], { timeout: 30000 })
+      action = 'pulled'
+    } else {
+      mkdirSync(join(targetDir, '..'), { recursive: true })
+      execFileSync('git', ['clone', url, targetDir], { timeout: 60000 })
+      action = 'cloned'
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error('[plugin-sources] POST git operation failed:', msg)
+    return Response.json({ error: 'git_failed', detail: msg }, { status: 500 })
+  }
+
+  // For marketplace type: update settings.json and known_marketplaces.json
+  if (type === 'marketplace') {
+    try {
+      const settingsPath = join(home, '.claude', 'settings.json')
+      const knownPath = join(home, '.claude', 'plugins', 'known_marketplaces.json')
+
+      // Read marketplace.json for plugin list
+      const marketplaceJsonPath = join(targetDir, '.claude-plugin', 'marketplace.json')
+      let pluginNames: string[] = []
+      if (existsSync(marketplaceJsonPath)) {
+        try {
+          const mj = JSON.parse(readFileSync(marketplaceJsonPath, 'utf-8'))
+          if (Array.isArray(mj.plugins)) {
+            pluginNames = mj.plugins.map((p: { name: string } | string) =>
+              typeof p === 'string' ? p : p.name
+            )
+          }
+        } catch { /* ignore parse errors */ }
+      }
+
+      // Read and update settings.json
+      let settings: Record<string, unknown> = {}
+      try {
+        if (existsSync(settingsPath)) {
+          settings = JSON.parse(readFileSync(settingsPath, 'utf-8'))
+        }
+      } catch { settings = {} }
+
+      if (!settings.extraKnownMarketplaces || typeof settings.extraKnownMarketplaces !== 'object') {
+        settings.extraKnownMarketplaces = {}
+      }
+      ;(settings.extraKnownMarketplaces as Record<string, string>)[name] = targetDir
+
+      if (!settings.enabledPlugins || typeof settings.enabledPlugins !== 'object') {
+        settings.enabledPlugins = {}
+      }
+      for (const p of pluginNames) {
+        ;(settings.enabledPlugins as Record<string, boolean>)[`${p}@${name}`] = true
+      }
+
+      // Atomic write to settings.json
+      const tmpPath = settingsPath + '.tmp'
+      writeFileSync(tmpPath, JSON.stringify(settings, null, 2), 'utf-8')
+      renameSync(tmpPath, settingsPath)
+
+      // Update known_marketplaces.json
+      let known: Record<string, unknown> = {}
+      try {
+        if (existsSync(knownPath)) {
+          known = JSON.parse(readFileSync(knownPath, 'utf-8'))
+        }
+      } catch { known = {} }
+      known[name] = { source: url, installLocation: targetDir, lastUpdated: new Date().toISOString() }
+      writeFileSync(knownPath, JSON.stringify(known, null, 2), 'utf-8')
+    } catch (e) {
+      console.error('[plugin-sources] POST settings update failed (non-fatal):', e)
+    }
+  }
+
+  return Response.json({ ok: true, action, restartRequired: true })
 }

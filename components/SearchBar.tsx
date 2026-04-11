@@ -4,39 +4,36 @@ interface Props {
   value: string
   onChange: (v: string) => void
   placeholder?: string
+  disabled?: boolean
 }
 
-export function SearchBar({ value, onChange, placeholder = 'Search skills by name, description, or trigger...' }: Props) {
+export function SearchBar({ value, onChange, placeholder = 'Search skills by name, description, or trigger...', disabled }: Props) {
   return (
     <div className="relative flex-1">
-      <svg
-        className="absolute left-3 top-1/2 -translate-y-1/2 opacity-40"
-        width="16" height="16" viewBox="0 0 24 24" fill="none"
-        stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-      >
-        <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
-      </svg>
       <input
         type="text"
         value={value}
-        onChange={e => onChange(e.target.value)}
-        onKeyDown={e => { if (e.key === 'Escape') onChange('') }}
+        onChange={e => !disabled && onChange(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Escape' && !disabled) onChange('') }}
         placeholder={placeholder}
+        disabled={disabled}
         style={{
           background: 'var(--surface)',
           border: '1px solid var(--border)',
           borderRadius: '8px',
-          color: 'var(--text)',
-          padding: '8px 12px 8px 36px',
+          color: disabled ? 'var(--text-dim)' : 'var(--text)',
+          padding: '8px 12px',
           fontSize: '14px',
           width: '100%',
           outline: 'none',
           transition: 'border-color 0.15s',
+          opacity: disabled ? 0.5 : 1,
+          cursor: disabled ? 'default' : 'text',
         }}
-        onFocus={e => (e.target.style.borderColor = 'var(--primary)')}
+        onFocus={e => { if (!disabled) e.target.style.borderColor = 'var(--primary)' }}
         onBlur={e => (e.target.style.borderColor = 'var(--border)')}
       />
-      {value && (
+      {value && !disabled && (
         <button
           onClick={() => onChange('')}
           className="absolute right-3 top-1/2 -translate-y-1/2 opacity-40 hover:opacity-100"

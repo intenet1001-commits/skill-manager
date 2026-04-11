@@ -1,3 +1,13 @@
+export type RecommendErrorCode =
+  | 'goal_empty'
+  | 'in_progress'
+  | 'index_missing'
+  | 'auth'
+  | 'not_installed'
+  | 'parse'
+  | 'failed'
+  | 'spawn'
+
 export interface SkillEntry {
   name: string
   pluginName: string

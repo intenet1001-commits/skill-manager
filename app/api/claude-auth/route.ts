@@ -1,22 +1,24 @@
-import { exec, execSync } from 'child_process'
+import { execFile, execSync } from 'child_process'
 import { NextRequest } from 'next/server'
-
-const ENV = { ...process.env, PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:' + (process.env.PATH || '') }
+import { checkOrigin, ORIGIN_FORBIDDEN } from '@/lib/check-origin'
+import { narrowEnv } from '@/lib/narrow-env'
 
 function getClaudePath(): string {
-  try { return execSync('which claude', { env: ENV }).toString().trim() } catch { return 'claude' }
+  try { return execSync('which claude', { env: narrowEnv() }).toString().trim() } catch { return 'claude' }
 }
 
 const CLAUDE = getClaudePath()
 
 export async function POST(req: NextRequest) {
+  if (!checkOrigin(req)) return ORIGIN_FORBIDDEN
   const { action } = await req.json()
 
   if (action === 'logout') {
     return new Promise<Response>(resolve => {
-      exec(`${CLAUDE} auth logout`, { timeout: 10000, env: ENV }, (err, stdout, stderr) => {
+      execFile(CLAUDE, ['auth', 'logout'], { timeout: 10000, env: narrowEnv() }, (err, _stdout, stderr) => {
         if (err) {
-          resolve(Response.json({ error: 'logout_failed', detail: stderr }, { status: 500 }))
+          resolve(Response.json({ error: 'logout_failed' }, { status: 500 }))
+          console.error('[claude-auth] logout error:', stderr)
         } else {
           resolve(Response.json({ success: true, message: '로그아웃 완료' }))
         }
@@ -25,18 +27,12 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === 'login') {
-    // Spawn login in background — opens browser automatically
-    const child = exec(`${CLAUDE} auth login --claudeai`, { env: ENV })
+    const child = execFile(CLAUDE, ['auth', 'login', '--claudeai'], { env: narrowEnv() })
     const pid = child.pid ?? 0
 
-    // Wait briefly to see if it fails immediately
     return new Promise<Response>(resolve => {
-      let errOutput = ''
-      child.stderr?.on('data', (d: Buffer) => { errOutput += d.toString() })
       child.on('error', () => resolve(Response.json({ error: 'login_failed' }, { status: 500 })))
-
       setTimeout(() => {
-        // If still running after 1s, it opened the browser — return success
         resolve(Response.json({ success: true, pid, message: '브라우저에서 로그인을 완료해주세요.' }))
       }, 1000)
     })

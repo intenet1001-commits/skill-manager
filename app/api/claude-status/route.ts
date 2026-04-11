@@ -1,4 +1,6 @@
 import { execSync } from 'child_process'
+import { checkOrigin, ORIGIN_FORBIDDEN } from '@/lib/check-origin'
+import { narrowEnv } from '@/lib/narrow-env'
 
 interface StatusCache {
   installed: boolean
@@ -13,15 +15,14 @@ interface StatusCache {
 let cache: StatusCache | null = null
 const CACHE_TTL = 30_000
 
-const ENV = { ...process.env, PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:' + (process.env.PATH || '') }
-
 function getClaudePath(): string {
-  try { return execSync('which claude', { env: ENV }).toString().trim() } catch { return 'claude' }
+  try { return execSync('which claude', { env: narrowEnv() }).toString().trim() } catch { return 'claude' }
 }
 
 const CLAUDE = getClaudePath()
 
-export async function GET() {
+export async function GET(req: Request) {
+  if (!checkOrigin(req)) return ORIGIN_FORBIDDEN
   if (cache && Date.now() - cache.ts < CACHE_TTL) {
     return Response.json(cache)
   }
@@ -29,7 +30,7 @@ export async function GET() {
   // 1. Check if installed
   let version = ''
   try {
-    version = execSync(`${CLAUDE} --version`, { timeout: 5000, env: ENV }).toString().trim().split('\n')[0] || ''
+    version = execSync(`${CLAUDE} --version`, { timeout: 5000, env: narrowEnv() }).toString().trim().split('\n')[0] || ''
   } catch {
     cache = { installed: false, authenticated: false, email: '', subscriptionType: '', authMethod: '', version: '', ts: Date.now() }
     return Response.json(cache)
@@ -37,7 +38,7 @@ export async function GET() {
 
   // 2. Check auth status via `claude auth status`
   try {
-    const raw = execSync(`${CLAUDE} auth status`, { timeout: 8000, env: ENV }).toString().trim()
+    const raw = execSync(`${CLAUDE} auth status`, { timeout: 8000, env: narrowEnv() }).toString().trim()
     const data = JSON.parse(raw)
     cache = {
       installed: true,

@@ -2,6 +2,8 @@ import { exec, spawn } from 'child_process'
 import { homedir, tmpdir } from 'os'
 import { join } from 'path'
 import { existsSync, writeFileSync, readdirSync } from 'fs'
+import { checkOrigin, ORIGIN_FORBIDDEN } from '@/lib/check-origin'
+import { sanitizeCmd as libSanitizeCmd, sanitizePath } from '@/lib/sanitize'
 
 /**
  * Post-launch tmux setup:
@@ -94,9 +96,7 @@ function findRuntimeCli(): string {
 
 const RUNTIME_CLI = findRuntimeCli()
 
-function sanitizeCmd(cmd: string): string {
-  return cmd.slice(0, 400).replace(/[`$(){}|;&\\<>]/g, '').trim()
-}
+const sanitizeCmd = libSanitizeCmd
 
 function esc(s: string): string {
   return s.replace(/'/g, "'\\''")
@@ -229,12 +229,20 @@ async function runSingleSkill(
 }
 
 export async function POST(req: Request) {
+  if (!checkOrigin(req)) return ORIGIN_FORBIDDEN
   const { cmds, projectPath, skipPerms, goal, sources } = await req.json() as {
     cmds: string[]
     projectPath?: string
     skipPerms?: boolean
     goal?: string
     sources?: string[]
+  }
+
+  const safeProjectPath = projectPath
+    ? (sanitizePath(projectPath, homedir()) ?? undefined)
+    : undefined
+  if (projectPath && safeProjectPath === undefined) {
+    return Response.json({ error: 'invalid_path' }, { status: 400 })
   }
 
   if (!Array.isArray(cmds) || cmds.length === 0) {
@@ -246,12 +254,12 @@ export async function POST(req: Request) {
 
   if (safeCmds.length === 1) {
     // Single skill: direct terminal launch
-    await runSingleSkill(safeCmds[0], projectPath, skipPerms ?? false, sources)
+    await runSingleSkill(safeCmds[0], safeProjectPath, skipPerms ?? false, sources)
     return Response.json({ ok: true, cmds: safeCmds, mode: 'single' })
   }
 
   // Multiple skills: try agent teams first, fall back to lead prompt
-  const result = await runAgentTeams(safeCmds, projectPath, goal || '', skipPerms ?? false, sources)
+  const result = await runAgentTeams(safeCmds, safeProjectPath, goal || '', skipPerms ?? false, sources)
 
   if (result.ok) {
     return Response.json({ ok: true, cmds: safeCmds, mode: 'team', teamName: result.teamName })
@@ -260,7 +268,7 @@ export async function POST(req: Request) {
   // Fallback: lead prompt in terminal (original behavior)
   console.warn('[run-skills] agent teams unavailable, falling back to lead prompt:', result.error)
   const goalText = (goal || '목표 달성').slice(0, 100).replace(/'/g, "'\\''")
-  const projectNote = projectPath ? ` Project: ${projectPath.split('/').pop()}.` : ''
+  const projectNote = safeProjectPath ? ` Project: ${safeProjectPath.split('/').pop()}.` : ''
   const skillLines = safeCmds.map((cmd, i) => `${i + 1}. ${cmd}`).join(', ')
   const leadPrompt = `You are an Agent Teams lead.${projectNote} Goal: ${goalText}.
 
@@ -270,8 +278,8 @@ ${skillLines}
 For each agent, set subagent_type to "general-purpose" and write a prompt that invokes the assigned skill using the Skill tool. After all agents complete, summarize the results.`
 
   const hasLocalSource = Array.isArray(sources) && sources.includes('local')
-  const cdPart = projectPath ? `cd '${esc(projectPath)}' && ` : ''
-  const addDir = projectPath ? `--add-dir '${esc(projectPath)}' ` : ''
+  const cdPart = safeProjectPath ? `cd '${esc(safeProjectPath)}' && ` : ''
+  const addDir = safeProjectPath ? `--add-dir '${esc(safeProjectPath)}' ` : ''
   const localAddDir = hasLocalSource ? `--add-dir '${esc(homedir() + '/cs_plugins')}' ` : ''
   const claudeFlag = skipPerms ? '--dangerously-skip-permissions' : ''
   const claudePart = `claude ${claudeFlag} ${addDir}${localAddDir}'${esc(leadPrompt)}'`.trim()

@@ -1,4 +1,5 @@
 import { exec } from 'child_process'
+import { checkOrigin, ORIGIN_FORBIDDEN } from '@/lib/check-origin'
 
 async function pickFolder(): Promise<Response> {
   return new Promise<Response>(resolve => {
@@ -11,7 +12,8 @@ async function pickFolder(): Promise<Response> {
           if (msg.includes('-128') || msg.includes('cancel') || msg.includes('user canceled')) {
             resolve(Response.json({ error: 'cancelled' }, { status: 400 }))
           } else {
-            resolve(Response.json({ error: 'failed', detail: err.message + stderr }, { status: 500 }))
+            console.error('[pick-folder] error:', err.message, stderr)
+            resolve(Response.json({ error: 'failed' }, { status: 500 }))
           }
           return
         }
@@ -23,10 +25,12 @@ async function pickFolder(): Promise<Response> {
   })
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  if (!checkOrigin(req)) return ORIGIN_FORBIDDEN
   return pickFolder()
 }
 
-export async function POST() {
+export async function POST(req: Request) {
+  if (!checkOrigin(req)) return ORIGIN_FORBIDDEN
   return pickFolder()
 }

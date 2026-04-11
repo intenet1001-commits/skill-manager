@@ -24,31 +24,11 @@ const QUICK_SEARCHES = [
   { label: 'git', q: 'git' }, { label: 'document', q: 'document' },
 ]
 
-// Korean → English keyword map for search
-const KO_EN: Record<string, string> = {
-  '코드': 'code', '리뷰': 'review', '커밋': 'commit', '배포': 'deploy',
-  '테스트': 'test', '빌드': 'build', '디버그': 'debug', '버그': 'bug',
-  '리팩터': 'refactor', '문서': 'document', '보안': 'security',
-  '풀리퀘': 'pull request', '깃': 'git', '분석': 'analyze',
-  '자동화': 'automation', '설계': 'design', '아키텍처': 'architecture',
-  '테스팅': 'testing', '검색': 'search', '인증': 'auth', '데이터': 'data',
-  '브랜치': 'branch', '머지': 'merge', '성능': 'performance', '최적화': 'optimize',
-  '코드리뷰': 'code review', '에이전트': 'agent', '스킬': 'skill',
-}
+import { translateQuery } from '@/lib/ko-en'
 
-function translateQuery(q: string): string {
-  let out = q
-  for (const [ko, en] of Object.entries(KO_EN)) {
-    out = out.replace(new RegExp(ko, 'g'), en)
-  }
-  return out
-}
-
-interface Props {
-  skills: SkillEntry[]
-}
-
-export function Dashboard({ skills }: Props) {
+export function Dashboard() {
+  const [skills, setSkills] = useState<SkillEntry[]>([])
+  const [loadingSkills, setLoadingSkills] = useState(true)
   const [mode, setMode] = useState<Mode>('browse')
   const [query, setQuery] = useState('')
   const [showPalette, setShowPalette] = useState(false)
@@ -62,6 +42,18 @@ export function Dashboard({ skills }: Props) {
   })
   const [page, setPage] = useState(1)
   const [sort, setSort] = useState<SortKey>('name')
+
+  // Multi-select state
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [copyAllDone, setCopyAllDone] = useState(false)
+
+  useEffect(() => {
+    fetch('/skills-index.json')
+      .then(r => r.json())
+      .then((data: SkillEntry[]) => { setSkills(data); setLoadingSkills(false) })
+      .catch(() => setLoadingSkills(false))
+  }, [])
 
   const fuse = useMemo(() => new Fuse(skills, {
     keys: [
@@ -167,61 +159,107 @@ export function Dashboard({ skills }: Props) {
     setPage(1)
   }, [])
 
+  const skillByKey = useMemo(() => {
+    const m = new Map<string, SkillEntry>()
+    for (const s of skills) m.set(`${s.pluginName}:${s.name}`, s)
+    return m
+  }, [skills])
+
+  const toggleSelected = useCallback((key: string) => {
+    setSelected(prev => {
+      const n = new Set(prev)
+      n.has(key) ? n.delete(key) : n.add(key)
+      return n
+    })
+  }, [])
+
+  const toggleSelectionMode = useCallback(() => {
+    setSelectionMode(prev => {
+      if (prev) setSelected(new Set())
+      return !prev
+    })
+  }, [])
+
+  const copySelected = useCallback(() => {
+    const cmds = [...selected]
+      .map(k => skillByKey.get(k)?.invocationCommand)
+      .filter((c): c is string => Boolean(c))
+      .join('\n')
+    navigator.clipboard.writeText(cmds).then(() => {
+      setCopyAllDone(true)
+      setTimeout(() => setCopyAllDone(false), 1500)
+    }).catch(() => {})
+  }, [selected, skillByKey])
+
   const paged = filtered.slice(0, page * PAGE_SIZE)
   const hasMore = filtered.length > paged.length
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-      {showPalette && <CommandPalette skills={skills} onClose={() => setShowPalette(false)} />}
+      {showPalette && <CommandPalette skills={skills} fuse={fuse} onClose={() => setShowPalette(false)} />}
       {/* Header */}
       <header style={{
         borderBottom: '1px solid var(--border)',
-        padding: '14px 20px',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '16px',
+        padding: '10px 20px',
         background: 'var(--surface)',
         position: 'sticky',
         top: 0,
         zIndex: 10,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-          <span style={{ fontSize: '18px' }}>🎯</span>
-          <span style={{ fontWeight: 700, fontSize: '16px', color: 'var(--text)' }}>Skill Manager</span>
+        {/* Row 1: logo + tabs + search + ⌘K hint */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+            <span style={{ fontSize: '18px' }}>🎯</span>
+            <span style={{ fontWeight: 700, fontSize: '16px', color: 'var(--text)' }}>Skill Manager</span>
+          </div>
+
+          {/* Mode tabs */}
+          <div style={{ display: 'flex', gap: '2px', padding: '3px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', flexShrink: 0 }}>
+            {(['browse', 'ai', 'sources'] as Mode[]).map(m => (
+              <button
+                key={m}
+                onClick={() => setMode(m)}
+                style={{
+                  padding: '4px 12px', borderRadius: '6px', border: 'none', cursor: 'pointer',
+                  fontSize: '13px', fontWeight: mode === m ? 600 : 400,
+                  background: mode === m ? 'var(--primary)' : 'transparent',
+                  color: mode === m ? '#fff' : 'var(--text-muted)',
+                  transition: 'all 0.15s',
+                }}
+              >
+                {m === 'browse' ? '🔍 탐색' : m === 'ai' ? '✨ AI 추천' : '🔗 플러그인 소스'}
+              </button>
+            ))}
+          </div>
+
+          {/* SearchBar always visible; disabled in non-browse modes */}
+          <div style={{ flex: 1 }}>
+            <SearchBar
+              value={query}
+              onChange={handleQueryChange}
+              disabled={mode !== 'browse'}
+              placeholder={mode === 'browse' ? 'Search skills by name, description, or trigger...' : '탐색 모드에서 검색할 수 있어요'}
+            />
+          </div>
+
+          {/* ⌘K hint chip */}
+          <button
+            onClick={() => setShowPalette(true)}
+            title="Command palette (⌘K)"
+            style={{
+              padding: '4px 10px', borderRadius: '6px', border: '1px solid var(--border)',
+              background: 'var(--surface-2)', color: 'var(--text-dim)', fontSize: '11px',
+              cursor: 'pointer', flexShrink: 0,
+            }}
+          >
+            ⌘K
+          </button>
         </div>
 
-        {/* Mode tabs */}
-        <div style={{ display: 'flex', gap: '2px', padding: '3px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', flexShrink: 0 }}>
-          {(['browse', 'ai', 'sources'] as Mode[]).map(m => (
-            <button
-              key={m}
-              onClick={() => setMode(m)}
-              style={{
-                padding: '4px 12px', borderRadius: '6px', border: 'none', cursor: 'pointer',
-                fontSize: '13px', fontWeight: mode === m ? 600 : 400,
-                background: mode === m ? 'var(--primary)' : 'transparent',
-                color: mode === m ? '#fff' : 'var(--text-muted)',
-                transition: 'all 0.15s',
-              }}
-            >
-              {m === 'browse' ? '🔍 탐색' : m === 'ai' ? '✨ AI 추천' : '🔗 플러그인 소스'}
-            </button>
-          ))}
+        {/* Row 2: StatsBar */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px', paddingTop: '6px', borderTop: '1px solid var(--border)' }}>
+          <StatsBar all={skills} filtered={filtered} />
         </div>
-
-        {mode === 'browse' && <SearchBar value={query} onChange={handleQueryChange} />}
-        <button
-          onClick={() => setShowPalette(true)}
-          title="Command palette (⌘K)"
-          style={{
-            padding: '4px 10px', borderRadius: '6px', border: '1px solid var(--border)',
-            background: 'var(--surface-2)', color: 'var(--text-muted)', fontSize: '11px',
-            cursor: 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center', gap: '4px',
-          }}
-        >
-          ⌘K
-        </button>
-        <StatsBar all={skills} filtered={filtered} />
       </header>
 
       {/* Body */}
@@ -249,7 +287,7 @@ export function Dashboard({ skills }: Props) {
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px', flexWrap: 'wrap' }}>
             <span style={{ fontSize: '11px', color: 'var(--text-dim)', flexShrink: 0 }}>빠른 검색:</span>
             {QUICK_SEARCHES.map(({ label, q }) => (
-              <button key={q} onClick={() => { handleQueryChange(q); setPage(1) }}
+              <button key={q} onClick={() => handleQueryChange(query === q ? '' : q)}
                 style={{
                   padding: '3px 10px', borderRadius: '999px', fontSize: '11px', fontWeight: 500,
                   border: `1px solid ${query === q ? 'var(--primary)' : 'var(--border)'}`,
@@ -259,7 +297,31 @@ export function Dashboard({ skills }: Props) {
                 }}>{label}</button>
             ))}
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>정렬:</span>
+              {/* Selection mode toggle */}
+              <button
+                onClick={toggleSelectionMode}
+                style={{
+                  padding: '3px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 500,
+                  border: `1px solid ${selectionMode ? 'var(--primary)' : 'var(--border)'}`,
+                  background: selectionMode ? 'rgba(99,102,241,0.12)' : 'transparent',
+                  color: selectionMode ? 'var(--primary)' : 'var(--text-muted)',
+                  cursor: 'pointer', transition: 'all 0.15s',
+                }}
+                title="여러 스킬을 선택해서 복사하기"
+              >
+                {selectionMode ? `☑ ${selected.size}개 선택` : '☐ 선택'}
+              </button>
+              {selectionMode && selected.size > 0 && (
+                <button
+                  onClick={() => setSelected(new Set())}
+                  style={{
+                    padding: '3px 8px', borderRadius: '6px', fontSize: '11px',
+                    border: '1px solid var(--border)', background: 'transparent',
+                    color: 'var(--text-dim)', cursor: 'pointer',
+                  }}
+                >해제</button>
+              )}
+              <span style={{ fontSize: '11px', color: 'var(--text-dim)', marginLeft: '4px' }}>정렬:</span>
               {(['name', 'plugin', 'phase'] as SortKey[]).map(k => (
                 <button key={k} onClick={() => setSort(k)}
                   style={{
@@ -273,7 +335,11 @@ export function Dashboard({ skills }: Props) {
             </div>
           </div>
 
-          {filtered.length === 0 ? (
+          {loadingSkills ? (
+            <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
+              <div style={{ fontSize: '13px' }}>스킬 로딩 중…</div>
+            </div>
+          ) : filtered.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
               <div style={{ fontSize: '32px', marginBottom: '12px' }}>🔍</div>
               <div style={{ fontSize: '16px', marginBottom: '6px', color: 'var(--text)' }}>No skills found</div>
@@ -300,9 +366,19 @@ export function Dashboard({ skills }: Props) {
                 gridTemplateColumns: 'repeat(auto-fill, minmax(min(300px, 100%), 1fr))',
                 gap: '12px',
               }}>
-                {paged.map(skill => (
-                  <SkillCard key={`${skill.pluginName}:${skill.name}`} skill={skill} onRun={handleRunSkill} />
-                ))}
+                {paged.map(skill => {
+                  const cardKey = `${skill.pluginName}:${skill.name}`
+                  return (
+                    <SkillCard
+                      key={cardKey}
+                      skill={skill}
+                      onRun={handleRunSkill}
+                      selectionMode={selectionMode}
+                      isSelected={selected.has(cardKey)}
+                      onToggleSelect={() => toggleSelected(cardKey)}
+                    />
+                  )
+                })}
               </div>
               {hasMore && (
                 <div style={{ textAlign: 'center', padding: '24px' }}>
@@ -328,6 +404,48 @@ export function Dashboard({ skills }: Props) {
         </>
         )}
       </div>
+
+      {/* Floating multi-select action bar */}
+      {selectionMode && selected.size > 0 && (
+        <div
+          role="toolbar"
+          aria-label="선택 액션"
+          style={{
+            position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
+            display: 'flex', alignItems: 'center', gap: '8px',
+            padding: '10px 18px', borderRadius: '999px',
+            background: 'var(--surface)', border: '1px solid var(--primary)',
+            boxShadow: '0 4px 24px rgba(0,0,0,0.35)',
+            zIndex: 100, whiteSpace: 'nowrap',
+          }}
+        >
+          <span style={{ fontSize: '13px', color: 'var(--text)', fontWeight: 500 }}>
+            ✓ {selected.size}개 선택됨
+          </span>
+          <button
+            onClick={copySelected}
+            style={{
+              padding: '6px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: 600,
+              background: copyAllDone ? '#22c55e22' : 'var(--primary)',
+              color: copyAllDone ? '#22c55e' : '#fff',
+              border: copyAllDone ? '1px solid #22c55e44' : 'none',
+              cursor: 'pointer', transition: 'all 0.15s',
+            }}
+          >
+            {copyAllDone ? '✓ 복사됨' : '📋 모두 복사'}
+          </button>
+          <button
+            onClick={() => setSelected(new Set())}
+            style={{
+              padding: '6px 12px', borderRadius: '8px', fontSize: '12px',
+              background: 'transparent', border: '1px solid var(--border)',
+              color: 'var(--text-muted)', cursor: 'pointer',
+            }}
+          >
+            ✕ 해제
+          </button>
+        </div>
+      )}
     </div>
   )
 }

@@ -2,14 +2,20 @@ import { spawn, execSync } from 'child_process'
 import { NextRequest } from 'next/server'
 import { readFileSync, writeFileSync, existsSync } from 'fs'
 import { join } from 'path'
-import { tmpdir } from 'os'
+import { tmpdir, homedir } from 'os'
 import Fuse from 'fuse.js'
+import Anthropic from '@anthropic-ai/sdk'
 import { SkillEntry } from '@/lib/types'
+import { sanitizeGoal } from '@/lib/sanitize'
+import { extractSearchTerms } from '@/lib/ko-en'
+import { checkOrigin, ORIGIN_FORBIDDEN } from '@/lib/check-origin'
+import { narrowEnv } from '@/lib/narrow-env'
+import { ConcurrencyGuard } from '@/lib/concurrency-guard'
 
 // Resolve claude path once at module init
 let CLAUDE_PATH = 'claude'
 try {
-  CLAUDE_PATH = execSync('which claude', { env: { ...process.env, PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:' + (process.env.PATH || '') } }).toString().trim()
+  CLAUDE_PATH = execSync('which claude', { env: narrowEnv() }).toString().trim()
 } catch { /* fall back to 'claude' */ }
 
 // Write empty MCP config once — used to skip MCP server startup overhead
@@ -22,28 +28,45 @@ if (!existsSync(NO_MCP_CONFIG)) {
 const NO_HOOKS_SETTINGS = join(tmpdir(), 'skill-manager-no-hooks.json')
 try { writeFileSync(NO_HOOKS_SETTINGS, '{"hooks":{}}', 'utf-8') } catch { /* ignore */ }
 
-function sanitizeGoal(input: string): string {
-  // claude is spawned with shell:false (route.ts:166), so the goal is passed as
-  // an argv element — not interpolated into a shell. Backticks, $, <>, () are
-  // common in markdown content (code fences, JSX, function calls) and were
-  // being silently stripped, mangling dropped .md file content.
-  // Strip only true control chars and null bytes.
-  return input
-    .slice(0, 5000)
-    // eslint-disable-next-line no-control-regex
-    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
-    .trim()
+/**
+ * Resolve an Anthropic API key for the SDK fast-path.
+ * Priority: process env → ~/.claude/settings.json env field
+ */
+function resolveApiKey(): string | null {
+  if (process.env.ANTHROPIC_API_KEY) return process.env.ANTHROPIC_API_KEY
+  try {
+    const settings = JSON.parse(readFileSync(join(homedir(), '.claude', 'settings.json'), 'utf-8'))
+    if (settings?.env?.ANTHROPIC_API_KEY) return settings.env.ANTHROPIC_API_KEY
+  } catch { /* ignore */ }
+  return null
+}
+
+const API_KEY = resolveApiKey()
+const anthropic = API_KEY ? new Anthropic({ apiKey: API_KEY }) : null
+
+// Module-level skills cache — avoids re-reading 1149-skill JSON on every request
+interface SkillsCache { skills: SkillEntry[]; ts: number }
+let skillsCache: SkillsCache | null = null
+const SKILLS_CACHE_TTL = 5 * 60_000 // 5 minutes
+
+function loadSkills(): SkillEntry[] | null {
+  if (skillsCache && Date.now() - skillsCache.ts < SKILLS_CACHE_TTL) return skillsCache.skills
+  try {
+    const skills = JSON.parse(readFileSync(join(process.cwd(), 'public', 'skills-index.json'), 'utf-8'))
+    skillsCache = { skills, ts: Date.now() }
+    return skills
+  } catch { return null }
 }
 
 // Concurrency guard — up to 5 parallel spawns
-let activeCount = 0
-const MAX_CONCURRENT = 5
+const concurrency = new ConcurrencyGuard(5)
 
 function send(controller: ReadableStreamDefaultController, data: object) {
   controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`))
 }
 
 export async function POST(req: NextRequest) {
+  if (!checkOrigin(req)) return ORIGIN_FORBIDDEN
   const body = await req.json()
   const sanitized = sanitizeGoal(body.goal || '')
   const projectContext: string = typeof body.projectContext === 'string'
@@ -55,38 +78,15 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: 'goal_empty' }, { status: 400 })
   }
 
-  if (activeCount >= MAX_CONCURRENT) {
+  if (concurrency.isFull) {
     return Response.json({ error: 'in_progress' }, { status: 429 })
   }
 
-  // Load skills index
-  let skills: SkillEntry[]
-  try {
-    skills = JSON.parse(readFileSync(join(process.cwd(), 'public', 'skills-index.json'), 'utf-8'))
-  } catch {
-    return Response.json({ error: 'index_missing' }, { status: 503 })
-  }
+  // Load skills index (cached)
+  const skills = loadSkills()
+  if (!skills) return Response.json({ error: 'index_missing' }, { status: 503 })
 
-  // Korean → English keyword translation for better Fuse.js matching
-  const KO_EN: Record<string, string> = {
-    '코드': 'code', '리뷰': 'review', '커밋': 'commit', '배포': 'deploy',
-    '테스트': 'test', '빌드': 'build', '디버그': 'debug', '버그': 'bug',
-    '리팩터': 'refactor', '문서': 'document', '보안': 'security',
-    '풀리퀘': 'pull request', '깃': 'git', '분석': 'analyze',
-    '자동화': 'automation', '설계': 'design', '아키텍처': 'architecture',
-    '테스팅': 'testing', '검색': 'search', '인증': 'auth', '데이터': 'data',
-    '브랜치': 'branch', '머지': 'merge', '성능': 'performance', '최적화': 'optimize',
-    'PR': 'pull request', '스킬': 'skill', '에이전트': 'agent',
-  }
-  // Extract English keywords from input + translate Korean terms
-  const englishTerms: string[] = (sanitized.match(/[a-zA-Z][a-zA-Z0-9-_]{2,}/g) || [])
-  for (const [ko, en] of Object.entries(KO_EN)) {
-    if (sanitized.includes(ko)) {
-      // Multi-word translations: add each word
-      en.split(' ').filter(w => w.length > 2).forEach(w => englishTerms.push(w))
-    }
-  }
-  const searchTerms = [...new Set(englishTerms)].filter(t => t.length >= 3).slice(0, 6)
+  const searchTerms = extractSearchTerms(sanitized)
 
   // Stage 1: Fuse.js pre-filter — userInvocable only → top 12
   const invocable = skills.filter(s => s.userInvocable)
@@ -141,7 +141,7 @@ Example format:
 
 Respond with the JSON array only, no additional text.`
 
-  activeCount++
+  concurrency.acquire()
 
   const stream = new ReadableStream({
     start(controller) {
@@ -151,32 +151,10 @@ Respond with the JSON array only, no additional text.`
           { name: 'mock-skill', cmd: '/mock', plugin: 'test', reason: '테스트 모드 결과입니다.' }
         ]})
         controller.close()
-        activeCount--
+        concurrency.release()
         return
       }
 
-      const spawnArgs = [
-        '--print',
-        '--output-format', 'json',
-        '--no-session-persistence',
-        '--model', 'claude-haiku-4-5-20251001',
-        '--setting-sources', '',
-        ...(existsSync(NO_MCP_CONFIG) ? ['--strict-mcp-config', '--mcp-config', NO_MCP_CONFIG] : []),
-        '--',
-        prompt,
-      ]
-
-      console.error('[recommend] spawn:', CLAUDE_PATH, spawnArgs.slice(0, 8).join(' '), '... NO_MCP_EXISTS:', existsSync(NO_MCP_CONFIG))
-      const spawnStart = Date.now()
-      const child = spawn(CLAUDE_PATH, spawnArgs, {
-        shell: false,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        env: { ...process.env, PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:' + (process.env.PATH || '') },
-        cwd: tmpdir(),
-      })
-
-      let stdoutBuf = ''
-      let killed = false
       let resultSent = false
       let streamClosed = false
 
@@ -186,6 +164,71 @@ Respond with the JSON array only, no additional text.`
       function safeClose() {
         if (!streamClosed) { streamClosed = true; controller.close() }
       }
+
+      // ── SDK fast-path (when ANTHROPIC_API_KEY is available) ──────────────
+      if (anthropic) {
+        const start = Date.now()
+        console.error('[recommend] using SDK fast-path')
+        ;(async () => {
+          try {
+            let text = ''
+            const stream = anthropic.messages.stream({
+              model: 'claude-sonnet-4-6',
+              max_tokens: 1024,
+              messages: [{ role: 'user', content: prompt }],
+            })
+            for await (const chunk of stream) {
+              if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
+                text += chunk.delta.text
+              }
+            }
+            console.error('[recommend] SDK done in', Date.now() - start, 'ms')
+            const jsonMatch = text.match(/\[[\s\S]*?\]/)
+            if (jsonMatch) {
+              const recommendations = JSON.parse(jsonMatch[0])
+              safeSend({ done: true, recommendations })
+            } else {
+              safeSend({ error: 'parse' })
+            }
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err)
+            console.error('[recommend] SDK error:', msg)
+            if (msg.includes('auth') || msg.includes('api_key') || msg.includes('401')) {
+              safeSend({ error: 'auth' })
+            } else {
+              safeSend({ error: 'failed' })
+            }
+          } finally {
+            concurrency.release()
+            safeClose()
+          }
+        })()
+        return
+      }
+
+      // ── CLI spawn fallback ────────────────────────────────────────────────
+      const spawnArgs = [
+        '--print',
+        '--output-format', 'json',
+        '--no-session-persistence',
+        '--model', 'claude-sonnet-4-6',
+        '--setting-sources', '',
+        ...(existsSync(NO_MCP_CONFIG) ? ['--strict-mcp-config', '--mcp-config', NO_MCP_CONFIG] : []),
+        '--',
+        prompt,
+      ]
+
+      console.error('[recommend] spawn:', CLAUDE_PATH, spawnArgs.slice(0, 8).join(' '))
+      const spawnStart = Date.now()
+      const child = spawn(CLAUDE_PATH, spawnArgs, {
+        shell: false,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: narrowEnv(),
+        cwd: tmpdir(),
+      })
+
+      let stdoutBuf = ''
+      let killed = false
 
       const killTimer = setTimeout(() => {
         killed = true
@@ -206,7 +249,7 @@ Respond with the JSON array only, no additional text.`
       child.on('close', (code: number | null) => {
         console.error('[recommend] close code:', code, 'after', Date.now() - spawnStart, 'ms, killed:', killed)
         clearTimeout(killTimer)
-        activeCount--
+        concurrency.release()
 
         if (killed) {
           const fallback = candidates.slice(0, 5).map(s => ({
@@ -242,7 +285,7 @@ Respond with the JSON array only, no additional text.`
 
       child.on('error', (err: Error) => {
         clearTimeout(killTimer)
-        activeCount--
+        concurrency.release()
         if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
           safeSend({ error: 'not_installed' })
         } else {

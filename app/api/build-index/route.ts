@@ -1,6 +1,7 @@
 import { execFile } from 'child_process'
 import { readFileSync, existsSync } from 'fs'
 import { join } from 'path'
+import { checkOrigin, ORIGIN_FORBIDDEN } from '@/lib/check-origin'
 
 interface SkillKey {
   name: string
@@ -25,7 +26,8 @@ function keyOf(s: SkillKey): string {
   return `${s.pluginName}::${s.name}`
 }
 
-export async function POST() {
+export async function POST(req: Request) {
+  if (!checkOrigin(req)) return ORIGIN_FORBIDDEN
   const indexPath = join(process.cwd(), 'public', 'skills-index.json')
 
   // Snapshot BEFORE rebuild
