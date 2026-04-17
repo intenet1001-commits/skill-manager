@@ -1,6 +1,12 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { SkillEntry } from '@/lib/types'
+import { RECOMMENDED_REPOS, RecommendedRepo } from '@/lib/recommended-repos'
+
+function normalizeUrl(url: string): string {
+  return url.replace(/\.git$/, '').replace(/\/$/, '').toLowerCase()
+}
 
 interface PluginSource {
   name: string
@@ -27,6 +33,230 @@ const TYPE_TEXT: Record<string, string> = {
   skill: '#f59e0b',
 }
 
+function GitHubSourcesModal({ sources, allSkills, onClose }: {
+  sources: PluginSource[]
+  allSkills: SkillEntry[]
+  onClose: () => void
+}) {
+  const [copiedCmd, setCopiedCmd] = useState<string | null>(null)
+  const [copiedAll, setCopiedAll] = useState(false)
+
+  const publicSources = sources.filter(s => s.url.includes('github.com'))
+
+  function getSkillCount(source: PluginSource) {
+    const n = source.name.toLowerCase()
+    return allSkills.filter(s =>
+      s.marketplace.toLowerCase() === n ||
+      s.pluginName.toLowerCase() === n ||
+      s.pluginName.toLowerCase().startsWith(n + '-') ||
+      s.marketplace.toLowerCase().startsWith(n + '-')
+    ).length
+  }
+
+  function installCmd(source: PluginSource) {
+    if (source.type === 'marketplace') return `git clone ${source.url} ~/.claude/plugins/marketplaces/${source.name}`
+    if (source.type === 'plugin') return `git clone ${source.url} ~/.claude/plugins/${source.name}`
+    return `git clone ${source.url} ~/.claude/skills/${source.name}`
+  }
+
+  function copyCmd(cmd: string) {
+    navigator.clipboard.writeText(cmd)
+    setCopiedCmd(cmd)
+    setTimeout(() => setCopiedCmd(null), 1500)
+  }
+
+  function copyAll() {
+    const cmds = publicSources.map(s => `# ${s.name} (${TYPE_LABEL[s.type]})\n${installCmd(s)}`).join('\n\n')
+    navigator.clipboard.writeText(cmds)
+    setCopiedAll(true)
+    setTimeout(() => setCopiedAll(false), 2000)
+  }
+
+  // Group by type for display
+  const grouped: Record<string, PluginSource[]> = { marketplace: [], plugin: [], skill: [] }
+  for (const s of publicSources) grouped[s.type].push(s)
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1000,
+        background: 'rgba(0,0,0,0.55)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: '20px',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: 'var(--bg)',
+          border: '1px solid var(--border)',
+          borderRadius: '14px',
+          width: '100%',
+          maxWidth: '700px',
+          maxHeight: '80vh',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+          boxShadow: '0 24px 64px rgba(0,0,0,0.4)',
+        }}
+      >
+        {/* Modal header */}
+        <div style={{
+          padding: '16px 20px',
+          borderBottom: '1px solid var(--border)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexShrink: 0,
+        }}>
+          <div>
+            <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '7px' }}>
+              🌟 추천 플러그인 / GitHub 소스
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              현재 설치된 소스 중 공개 GitHub 저장소 {publicSources.length}개
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            {publicSources.length > 0 && (
+              <button onClick={copyAll} style={{
+                padding: '6px 14px', borderRadius: '7px', border: 'none',
+                background: copiedAll ? '#10b981' : 'var(--primary)',
+                color: '#fff', cursor: 'pointer', fontSize: '12px', fontWeight: 600,
+              }}>
+                {copiedAll ? '✓ 복사됨' : '📋 전체 설치 명령 복사'}
+              </button>
+            )}
+            <button onClick={onClose} style={{
+              padding: '5px 10px', borderRadius: '7px', border: '1px solid var(--border)',
+              background: 'none', cursor: 'pointer', fontSize: '13px', color: 'var(--text-muted)',
+            }}>✕</button>
+          </div>
+        </div>
+
+        {/* Modal body */}
+        <div style={{ overflowY: 'auto', padding: '16px 20px', flex: 1 }}>
+          {publicSources.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+              <div style={{ fontSize: '28px', marginBottom: '10px' }}>📭</div>
+              <div style={{ fontSize: '13px' }}>공개 GitHub 소스가 없습니다.</div>
+            </div>
+          ) : (
+            (['marketplace', 'plugin', 'skill'] as const).map(type => {
+              const items = grouped[type]
+              if (items.length === 0) return null
+              return (
+                <div key={type} style={{ marginBottom: '20px' }}>
+                  <div style={{
+                    fontSize: '11px', fontWeight: 700, textTransform: 'uppercase',
+                    letterSpacing: '0.08em', color: 'var(--text-muted)',
+                    marginBottom: '8px', paddingBottom: '5px',
+                    borderBottom: '1px solid var(--border)',
+                  }}>
+                    {TYPE_LABEL[type]} ({items.length})
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {items.map(s => {
+                      const skillCount = getSkillCount(s)
+                      const cmd = installCmd(s)
+                      const repoPath = s.url.replace('https://github.com/', '')
+                      return (
+                        <div key={s.url} style={{
+                          border: '1px solid var(--border)',
+                          borderRadius: '10px',
+                          background: 'var(--surface)',
+                          padding: '12px 14px',
+                        }}>
+                          {/* Top row */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                            <span style={{
+                              padding: '2px 7px', borderRadius: '4px', fontSize: '10px', fontWeight: 600,
+                              background: TYPE_COLOR[type], color: TYPE_TEXT[type], flexShrink: 0,
+                            }}>{TYPE_LABEL[type]}</span>
+                            <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', flex: 1 }}>
+                              {s.name}
+                            </span>
+                            {skillCount > 0 && (
+                              <span style={{
+                                fontSize: '11px', color: '#10b981',
+                                background: 'rgba(16,185,129,0.1)',
+                                padding: '2px 8px', borderRadius: '99px',
+                                fontWeight: 600,
+                              }}>
+                                {skillCount}개 스킬
+                              </span>
+                            )}
+                            <a
+                              href={s.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title="GitHub에서 보기"
+                              style={{
+                                fontSize: '11px', color: 'var(--text-muted)',
+                                textDecoration: 'none', flexShrink: 0,
+                                padding: '3px 8px', borderRadius: '5px',
+                                border: '1px solid var(--border)',
+                                display: 'inline-flex', alignItems: 'center', gap: '4px',
+                              }}
+                            >
+                              ↗ {repoPath}
+                            </a>
+                          </div>
+                          {/* Install command row */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <code style={{
+                              flex: 1, fontSize: '11px', fontFamily: 'monospace',
+                              color: 'var(--text-muted)',
+                              background: 'var(--bg)',
+                              border: '1px solid var(--border)',
+                              borderRadius: '5px',
+                              padding: '5px 8px',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              display: 'block',
+                            }}>
+                              {cmd}
+                            </code>
+                            <button
+                              onClick={() => copyCmd(cmd)}
+                              style={{
+                                padding: '5px 10px', borderRadius: '6px', flexShrink: 0,
+                                border: '1px solid var(--border)',
+                                background: copiedCmd === cmd ? 'rgba(16,185,129,0.15)' : 'none',
+                                color: copiedCmd === cmd ? '#10b981' : 'var(--text-muted)',
+                                cursor: 'pointer', fontSize: '11px', fontWeight: 600,
+                              }}
+                            >
+                              {copiedCmd === cmd ? '✓' : '복사'}
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </div>
+
+        {/* Modal footer */}
+        <div style={{
+          padding: '12px 20px',
+          borderTop: '1px solid var(--border)',
+          flexShrink: 0,
+          fontSize: '11px',
+          color: 'var(--text-dim)',
+        }}>
+          설치 명령을 복사 후 터미널에서 실행하세요. 설치 후 Claude Code를 재시작하면 적용됩니다.
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function SourcesPanel() {
   const [sources, setSources] = useState<PluginSource[]>([])
   const [loading, setLoading] = useState(true)
@@ -38,6 +268,19 @@ export function SourcesPanel() {
   const [addType, setAddType] = useState<'skill' | 'plugin' | 'marketplace'>('skill')
   const [addError, setAddError] = useState<string | null>(null)
   const [showAddForm, setShowAddForm] = useState(false)
+  const [allSkills, setAllSkills] = useState<SkillEntry[]>([])
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [showGitHubModal, setShowGitHubModal] = useState(false)
+  const [installStates, setInstallStates] = useState<Map<string, 'idle' | 'installing' | 'error'>>(new Map())
+  const [installErrors, setInstallErrors] = useState<Map<string, string>>(new Map())
+  const [restartNeeded, setRestartNeeded] = useState(false)
+  const [recCollapsed, setRecCollapsed] = useState(() => {
+    try { return localStorage.getItem('sm.recommendedRepos.collapsed') === '1' } catch { return false }
+  })
+  const [recExpanded, setRecExpanded] = useState<Set<string>>(new Set())
+  const [updateState, setUpdateState] = useState<'idle' | 'running' | 'done'>('idle')
+  const [updateResults, setUpdateResults] = useState<{ name: string; action: string; ok: boolean }[]>([])
+  const [showUpdateResults, setShowUpdateResults] = useState(false)
 
   useEffect(() => {
     fetch('/api/plugin-sources')
@@ -45,7 +288,30 @@ export function SourcesPanel() {
       .then(setSources)
       .catch(() => setSources([]))
       .finally(() => setLoading(false))
+    fetch('/skills-index.json')
+      .then(r => r.json())
+      .then(setAllSkills)
+      .catch(() => {})
   }, [])
+
+  function getSourceSkills(source: PluginSource): SkillEntry[] {
+    const n = source.name.toLowerCase()
+    return allSkills.filter(s =>
+      s.marketplace.toLowerCase() === n ||
+      s.pluginName.toLowerCase() === n ||
+      s.pluginName.toLowerCase().startsWith(n + '-') ||
+      s.marketplace.toLowerCase().startsWith(n + '-')
+    )
+  }
+
+  function toggleExpand(url: string) {
+    setExpanded(prev => {
+      const next = new Set(prev)
+      if (next.has(url)) next.delete(url)
+      else next.add(url)
+      return next
+    })
+  }
 
   function copyOne(url: string) {
     navigator.clipboard.writeText(url)
@@ -110,10 +376,65 @@ export function SourcesPanel() {
     setSources(prev => prev.filter(s => s.url !== url))
   }
 
+  const installedUrls = new Set(sources.map(s => normalizeUrl(s.url)))
+
+  async function handleInstall(repo: RecommendedRepo) {
+    setInstallStates(prev => new Map(prev).set(repo.id, 'installing'))
+    setInstallErrors(prev => { const m = new Map(prev); m.delete(repo.id); return m })
+    try {
+      const res = await fetch('/api/plugin-sources', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: repo.url, name: repo.name, type: repo.type }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.ok) throw new Error(data.message || data.error || '설치 실패')
+      // Optimistically add to sources list
+      setSources(prev => prev.some(s => normalizeUrl(s.url) === normalizeUrl(repo.url))
+        ? prev
+        : [...prev, { name: repo.name, url: repo.url, type: repo.type }])
+      if (data.restartRequired) setRestartNeeded(true)
+      setInstallStates(prev => { const m = new Map(prev); m.delete(repo.id); return m })
+    } catch (e) {
+      setInstallStates(prev => new Map(prev).set(repo.id, 'error'))
+      setInstallErrors(prev => new Map(prev).set(repo.id, String(e)))
+      setTimeout(() => {
+        setInstallStates(prev => { const m = new Map(prev); m.delete(repo.id); return m })
+      }, 5000)
+    }
+  }
+
+  async function handleUpdateAll() {
+    setUpdateState('running')
+    setUpdateResults([])
+    const results = await Promise.allSettled(
+      sources.map(async s => {
+        const res = await fetch('/api/plugin-sources', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: s.url.replace(/\.git$/, ''), name: s.name, type: s.type }),
+        })
+        const data = await res.json()
+        return { name: s.name, action: data.action ?? 'unknown', ok: !!data.ok }
+      })
+    )
+    const mapped = results.map((r, i) =>
+      r.status === 'fulfilled'
+        ? r.value
+        : { name: sources[i]?.name ?? '?', action: 'error', ok: false }
+    )
+    setUpdateResults(mapped)
+    setUpdateState('done')
+    setShowUpdateResults(true)
+    setRestartNeeded(true)
+  }
+
+  const recommendedUrls = new Set(RECOMMENDED_REPOS.map(r => normalizeUrl(r.url)))
+  const nonRecommended = sources.filter(s => !recommendedUrls.has(normalizeUrl(s.url)))
   const grouped = {
-    marketplace: sources.filter(s => s.type === 'marketplace'),
-    plugin: sources.filter(s => s.type === 'plugin'),
-    skill: sources.filter(s => s.type === 'skill'),
+    marketplace: nonRecommended.filter(s => s.type === 'marketplace'),
+    plugin: nonRecommended.filter(s => s.type === 'plugin'),
+    skill: nonRecommended.filter(s => s.type === 'skill'),
   }
 
   return (
@@ -124,12 +445,33 @@ export function SourcesPanel() {
             설치된 플러그인 소스
           </div>
           <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-            {loading ? '로딩 중...' : `${sources.length}개 GitHub 저장소`}
+            {loading ? '로딩 중...' : `전체 ${sources.length}개 · 추천 외 ${nonRecommended.length}개`}
           </div>
         </div>
 
         {sources.length > 0 && (
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            {/* Update all button */}
+            <button
+              onClick={handleUpdateAll}
+              disabled={updateState === 'running'}
+              title="설치된 모든 플러그인/스킬을 git pull로 최신화"
+              style={{
+                padding: '7px 14px', borderRadius: '7px', border: '1px solid var(--border)',
+                background: updateState === 'running' ? 'var(--surface)' : updateState === 'done' ? 'rgba(16,185,129,0.1)' : 'var(--surface)',
+                color: updateState === 'done' ? '#10b981' : 'var(--text-muted)',
+                cursor: updateState === 'running' ? 'wait' : 'pointer',
+                fontSize: '12px', fontWeight: 600,
+                display: 'inline-flex', alignItems: 'center', gap: '5px',
+              }}
+            >
+              {updateState === 'running' ? (
+                <>
+                  <span style={{ display: 'inline-block', width: '11px', height: '11px', border: '2px solid var(--border)', borderTopColor: 'var(--primary)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                  업데이트 중...
+                </>
+              ) : updateState === 'done' ? '✓ 업데이트 완료' : '↻ 전체 업데이트'}
+            </button>
             {/* Format selector */}
             <div style={{ display: 'flex', gap: '2px', padding: '3px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '7px' }}>
               {(['markdown', 'plain', 'json'] as const).map(f => (
@@ -149,6 +491,198 @@ export function SourcesPanel() {
             }}>
               {copiedAll ? '✓ 복사됨' : '📋 전체 복사'}
             </button>
+          </div>
+        )}
+      </div>
+
+      {/* Restart banner */}
+      {restartNeeded && (
+        <div style={{
+          marginBottom: '16px', padding: '10px 14px', borderRadius: '8px',
+          background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px',
+        }}>
+          <span style={{ fontSize: '12px', color: '#f59e0b' }}>
+            ✓ 설치 완료. Claude Code 재시작 후 새 플러그인이 적용됩니다.
+          </span>
+          <button onClick={() => setRestartNeeded(false)} style={{
+            background: 'none', border: 'none', color: '#f59e0b', cursor: 'pointer', fontSize: '14px', padding: '0 4px',
+          }}>✕</button>
+        </div>
+      )}
+
+      {/* Update results */}
+      {showUpdateResults && updateResults.length > 0 && (
+        <div style={{ marginBottom: '16px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--surface)', overflow: 'hidden' }}>
+          <div style={{ padding: '8px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>업데이트 결과 ({updateResults.length}개)</span>
+            <button onClick={() => setShowUpdateResults(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '13px' }}>✕</button>
+          </div>
+          <div style={{ padding: '8px 14px', display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '160px', overflowY: 'auto' }}>
+            {updateResults.map((r, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px' }}>
+                <span style={{ color: r.ok ? '#10b981' : '#ef4444', flexShrink: 0 }}>{r.ok ? '✓' : '✕'}</span>
+                <span style={{ color: 'var(--text)', flexShrink: 0, fontWeight: 500 }}>{r.name}</span>
+                <span style={{ color: 'var(--text-muted)' }}>{r.action === 'pulled' ? '최신화됨' : r.action === 'cloned' ? '새로 설치됨' : r.action === 'error' ? '실패' : r.action}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Recommended repos section */}
+      <div style={{ marginBottom: '28px' }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          marginBottom: recCollapsed ? 0 : '12px',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>추천 플러그인 소스</span>
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)', background: 'var(--surface)', border: '1px solid var(--border)', padding: '1px 7px', borderRadius: '99px' }}>
+              {RECOMMENDED_REPOS.length}개
+            </span>
+          </div>
+          <button
+            onClick={() => {
+              const next = !recCollapsed
+              setRecCollapsed(next)
+              try { localStorage.setItem('sm.recommendedRepos.collapsed', next ? '1' : '0') } catch {}
+            }}
+            style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '12px' }}
+          >
+            {recCollapsed ? '▼ 펼치기' : '▲ 접기'}
+          </button>
+        </div>
+
+        {!recCollapsed && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {RECOMMENDED_REPOS.map(repo => {
+              const isInstalled = installedUrls.has(normalizeUrl(repo.url))
+              const state = installStates.get(repo.id) ?? 'idle'
+              const error = installErrors.get(repo.id)
+              const repoPath = repo.url.replace('https://github.com/', '')
+              const repoSkills = getSourceSkills({ name: repo.name, url: repo.url, type: repo.type })
+              const isRecExpanded = recExpanded.has(repo.id)
+              return (
+                <div key={repo.id} style={{
+                  borderRadius: '10px',
+                  background: isInstalled ? 'rgba(16,185,129,0.04)' : 'var(--surface)',
+                  border: `1px solid ${isInstalled ? 'rgba(16,185,129,0.25)' : repo.featured ? 'rgba(99,102,241,0.3)' : 'var(--border)'}`,
+                  padding: '12px 14px',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    <span style={{
+                      padding: '2px 7px', borderRadius: '4px', fontSize: '10px', fontWeight: 600,
+                      background: TYPE_COLOR[repo.type], color: TYPE_TEXT[repo.type], flexShrink: 0,
+                    }}>{TYPE_LABEL[repo.type]}</span>
+                    {repo.featured && (
+                      <span style={{ fontSize: '10px', color: '#f59e0b', flexShrink: 0 }}>★ 추천</span>
+                    )}
+                    <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', flexShrink: 0 }}>
+                      {repo.name}
+                    </span>
+                    {repo.skillCount && (
+                      <span style={{
+                        fontSize: '11px', color: '#10b981',
+                        background: 'rgba(16,185,129,0.1)',
+                        padding: '1px 7px', borderRadius: '99px', fontWeight: 600, flexShrink: 0,
+                      }}>{repo.skillCount}개 스킬</span>
+                    )}
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {repo.description}
+                    </span>
+                    <a
+                      href={repo.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        fontSize: '11px', color: 'var(--text-muted)',
+                        textDecoration: 'none', flexShrink: 0,
+                        padding: '3px 8px', borderRadius: '5px',
+                        border: '1px solid var(--border)',
+                      }}
+                      onClick={e => e.stopPropagation()}
+                    >↗ {repoPath}</a>
+
+                    {isInstalled ? (
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '4px',
+                        padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: 600,
+                        background: 'rgba(16,185,129,0.1)', color: '#10b981', flexShrink: 0,
+                      }}>✓ 설치됨</span>
+                    ) : (
+                      <button
+                        onClick={() => handleInstall(repo)}
+                        disabled={state === 'installing'}
+                        style={{
+                          padding: '4px 12px', borderRadius: '6px', border: 'none',
+                          background: state === 'error' ? 'rgba(239,68,68,0.1)' : 'var(--primary)',
+                          color: state === 'error' ? '#ef4444' : '#fff',
+                          fontSize: '12px', fontWeight: 600, cursor: state === 'installing' ? 'wait' : 'pointer',
+                          flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: '5px',
+                        }}
+                      >
+                        {state === 'installing' ? (
+                          <>
+                            <span style={{
+                              display: 'inline-block', width: '10px', height: '10px',
+                              border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#fff',
+                              borderRadius: '50%', animation: 'spin 0.8s linear infinite',
+                            }} />
+                            설치 중...
+                          </>
+                        ) : state === 'error' ? '↺ 재시도' : '⬇ 설치'}
+                      </button>
+                    )}
+                  </div>
+                  {repoSkills.length > 0 && (
+                    <div style={{ marginTop: '6px' }}>
+                      <button
+                        onClick={() => setRecExpanded(prev => {
+                          const next = new Set(prev)
+                          if (next.has(repo.id)) next.delete(repo.id)
+                          else next.add(repo.id)
+                          return next
+                        })}
+                        style={{
+                          padding: '3px 9px', borderRadius: '5px', border: '1px solid var(--border)',
+                          background: isRecExpanded ? 'rgba(99,102,241,0.1)' : 'none',
+                          cursor: 'pointer', fontSize: '11px',
+                          color: isRecExpanded ? 'var(--primary)' : 'var(--text-muted)',
+                        }}
+                      >
+                        {isRecExpanded ? '▲ 접기' : `▼ 주요 기능 (${repoSkills.filter(s => s.userInvocable).length}개)`}
+                      </button>
+                      {isRecExpanded && (
+                        <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '5px', paddingLeft: '2px' }}>
+                          {repoSkills.filter(s => s.userInvocable).slice(0, 8).map(sk => (
+                            <div key={sk.pluginName + ':' + sk.name} style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                              <code style={{ fontSize: '11px', color: 'var(--primary)', flexShrink: 0, fontFamily: 'monospace' }}>
+                                {sk.invocationCommand}
+                              </code>
+                              <span style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: '1.45', flex: 1 }}>
+                                {sk.description.replace(/Triggers?:.*$/im, '').trim().slice(0, 100)}
+                                {sk.description.replace(/Triggers?:.*$/im, '').trim().length > 100 ? '…' : ''}
+                              </span>
+                            </div>
+                          ))}
+                          {repoSkills.filter(s => s.userInvocable).length > 8 && (
+                            <div style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
+                              +{repoSkills.filter(s => s.userInvocable).length - 8}개 더 있음
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {error && (
+                    <div style={{ marginTop: '6px', fontSize: '11px', color: '#ef4444' }}>
+                      {error}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
@@ -184,50 +718,111 @@ export function SourcesPanel() {
               {TYPE_LABEL[type]} ({items.length})
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              {items.map(s => (
+              {items.map(s => {
+                const sourceSkills = getSourceSkills(s)
+                const isExpanded = expanded.has(s.url)
+                const hasGithub = s.url.includes('github.com')
+                return (
                 <div key={s.url} style={{
-                  display: 'flex', alignItems: 'center', gap: '10px',
-                  padding: '10px 14px', borderRadius: '9px',
+                  borderRadius: '9px',
                   background: 'var(--surface)', border: '1px solid var(--border)',
+                  overflow: 'hidden',
                 }}>
-                  <span style={{
-                    padding: '2px 7px', borderRadius: '4px', fontSize: '10px', fontWeight: 600,
-                    background: TYPE_COLOR[type], color: TYPE_TEXT[type], flexShrink: 0,
-                  }}>{TYPE_LABEL[type]}</span>
-                  <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', flexShrink: 0 }}>
-                    {s.name}
-                  </span>
-                  <a
-                    href={s.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{
-                      flex: 1, fontSize: '12px', color: 'var(--text-muted)',
-                      fontFamily: 'monospace', overflow: 'hidden',
-                      textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                      textDecoration: 'none',
-                    }}
-                    onMouseEnter={e => { (e.target as HTMLElement).style.color = 'var(--primary)' }}
-                    onMouseLeave={e => { (e.target as HTMLElement).style.color = 'var(--text-muted)' }}
-                  >
-                    {s.url.replace('https://github.com/', 'github.com/')}
-                  </a>
-                  <button onClick={() => copyOne(s.url)} style={{
-                    padding: '3px 9px', borderRadius: '5px', border: '1px solid var(--border)',
-                    background: 'none', cursor: 'pointer', fontSize: '11px', flexShrink: 0,
-                    color: copied === s.url ? 'var(--primary)' : 'var(--text-muted)',
-                  }}>
-                    {copied === s.url ? '✓' : '복사'}
-                  </button>
-                  {s.manual && (
-                    <button onClick={() => handleDelete(s.url)} title="삭제" style={{
-                      padding: '3px 7px', borderRadius: '5px', border: '1px solid rgba(239,68,68,0.3)',
+                  {/* Main row */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px' }}>
+                    <span style={{
+                      padding: '2px 7px', borderRadius: '4px', fontSize: '10px', fontWeight: 600,
+                      background: TYPE_COLOR[type], color: TYPE_TEXT[type], flexShrink: 0,
+                    }}>{TYPE_LABEL[type]}</span>
+                    <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', flexShrink: 0 }}>
+                      {s.name}
+                    </span>
+                    {sourceSkills.length > 0 && (
+                      <span style={{ fontSize: '10px', color: 'var(--text-dim)', flexShrink: 0 }}>
+                        {sourceSkills.length}개 스킬
+                      </span>
+                    )}
+                    <a
+                      href={s.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        flex: 1, fontSize: '12px', color: 'var(--text-muted)',
+                        fontFamily: 'monospace', overflow: 'hidden',
+                        textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        textDecoration: 'none',
+                      }}
+                      onMouseEnter={e => { (e.target as HTMLElement).style.color = 'var(--primary)' }}
+                      onMouseLeave={e => { (e.target as HTMLElement).style.color = 'var(--text-muted)' }}
+                    >
+                      {s.url.replace('https://github.com/', 'github.com/')}
+                    </a>
+                    {hasGithub && sourceSkills.length > 0 && (
+                      <button onClick={() => toggleExpand(s.url)} style={{
+                        padding: '3px 9px', borderRadius: '5px', border: '1px solid var(--border)',
+                        background: isExpanded ? 'rgba(99,102,241,0.1)' : 'none',
+                        cursor: 'pointer', fontSize: '11px', flexShrink: 0,
+                        color: isExpanded ? 'var(--primary)' : 'var(--text-muted)',
+                        transition: 'all 0.15s',
+                      }}>
+                        {isExpanded ? '▲ 접기' : '▼ 주요 기능'}
+                      </button>
+                    )}
+                    <button onClick={() => copyOne(s.url)} style={{
+                      padding: '3px 9px', borderRadius: '5px', border: '1px solid var(--border)',
                       background: 'none', cursor: 'pointer', fontSize: '11px', flexShrink: 0,
-                      color: 'rgba(239,68,68,0.7)',
-                    }}>✕</button>
+                      color: copied === s.url ? 'var(--primary)' : 'var(--text-muted)',
+                    }}>
+                      {copied === s.url ? '✓' : '복사'}
+                    </button>
+                    {s.manual && (
+                      <button onClick={() => handleDelete(s.url)} title="삭제" style={{
+                        padding: '3px 7px', borderRadius: '5px', border: '1px solid rgba(239,68,68,0.3)',
+                        background: 'none', cursor: 'pointer', fontSize: '11px', flexShrink: 0,
+                        color: 'rgba(239,68,68,0.7)',
+                      }}>✕</button>
+                    )}
+                  </div>
+
+                  {/* Skills summary — expanded */}
+                  {isExpanded && (
+                    <div style={{
+                      borderTop: '1px solid var(--border)',
+                      padding: '12px 14px',
+                      display: 'flex', flexDirection: 'column', gap: '6px',
+                    }}>
+                      <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '2px' }}>
+                        주요 스킬 ({sourceSkills.length}개)
+                      </div>
+                      {sourceSkills
+                        .filter(sk => sk.userInvocable)
+                        .slice(0, 8)
+                        .map(sk => (
+                        <div key={sk.pluginName + ':' + sk.name} style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                          <code style={{ fontSize: '11px', color: 'var(--primary)', flexShrink: 0, fontFamily: 'monospace' }}>
+                            {sk.invocationCommand}
+                          </code>
+                          <span style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: '1.45', flex: 1 }}>
+                            {sk.description.replace(/Triggers?:.*$/im, '').trim().slice(0, 100)}
+                            {sk.description.replace(/Triggers?:.*$/im, '').trim().length > 100 ? '…' : ''}
+                          </span>
+                        </div>
+                      ))}
+                      {sourceSkills.filter(sk => sk.userInvocable).length > 8 && (
+                        <div style={{ fontSize: '11px', color: 'var(--text-dim)', paddingTop: '2px' }}>
+                          +{sourceSkills.filter(sk => sk.userInvocable).length - 8}개 더 있음
+                        </div>
+                      )}
+                      {sourceSkills.filter(sk => !sk.userInvocable).length > 0 && (
+                        <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginTop: '2px' }}>
+                          내부 에이전트 {sourceSkills.filter(sk => !sk.userInvocable).length}개 포함
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         )

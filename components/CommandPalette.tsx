@@ -6,38 +6,18 @@ import { SkillEntry } from '@/lib/types'
 
 interface Props {
   skills: SkillEntry[]
+  fuse: Fuse<SkillEntry>
   onClose: () => void
 }
 
-const KO_EN: Record<string, string> = {
-  '코드': 'code', '리뷰': 'review', '커밋': 'commit', '배포': 'deploy',
-  '테스트': 'test', '빌드': 'build', '디버그': 'debug', '버그': 'bug',
-  '리팩터': 'refactor', '문서': 'document', '보안': 'security',
-  '풀리퀘': 'pull request', '깃': 'git', '분석': 'analyze',
-}
+import { translateQuery } from '@/lib/ko-en'
 
-function translateQuery(q: string): string {
-  let out = q
-  for (const [ko, en] of Object.entries(KO_EN)) {
-    out = out.replace(new RegExp(ko, 'g'), en)
-  }
-  return out
-}
-
-export function CommandPalette({ skills, onClose }: Props) {
+export function CommandPalette({ skills, fuse, onClose }: Props) {
   const [query, setQuery] = useState('')
-  const [selected, setSelected] = useState(0)
-  const [copied, setCopied] = useState<string | null>(null)
+  const [cursor, setCursor] = useState(0)
+  const [multiSelected, setMultiSelected] = useState<Set<string>>(new Set())
+  const [copied, setCopied] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
-
-  const fuse = useMemo(() => new Fuse(skills, {
-    keys: [
-      { name: 'name', weight: 3 },
-      { name: 'invocationCommand', weight: 2 },
-      { name: 'description', weight: 1 },
-    ],
-    threshold: 0.35,
-  }), [skills])
 
   const results = useMemo(() => {
     if (!query.trim()) return skills.filter(s => s.userInvocable).slice(0, 10)
@@ -55,32 +35,67 @@ export function CommandPalette({ skills, onClose }: Props) {
     return merged.slice(0, 10)
   }, [query, fuse, skills])
 
+  // Reset cursor when results change
+  useEffect(() => { setCursor(0) }, [results])
   useEffect(() => { inputRef.current?.focus() }, [])
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') { onClose(); return }
-      if (e.key === 'ArrowDown') { setSelected(s => Math.min(s + 1, results.length - 1)); e.preventDefault() }
-      if (e.key === 'ArrowUp') { setSelected(s => Math.max(s - 1, 0)); e.preventDefault() }
-      if (e.key === 'Enter') { copySkill(results[selected]) }
+      if (e.key === 'ArrowDown') { setCursor(s => Math.min(s + 1, results.length - 1)); e.preventDefault(); return }
+      if (e.key === 'ArrowUp') { setCursor(s => Math.max(s - 1, 0)); e.preventDefault(); return }
+      if (e.key === ' ' && document.activeElement !== inputRef.current) {
+        // Space toggles multi-select on cursor row
+        e.preventDefault()
+        const skill = results[cursor]
+        if (!skill) return
+        const key = `${skill.pluginName}:${skill.name}`
+        setMultiSelected(prev => {
+          const n = new Set(prev)
+          n.has(key) ? n.delete(key) : n.add(key)
+          return n
+        })
+        return
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        if (multiSelected.size > 0) {
+          copyMulti()
+        } else {
+          copySingle(results[cursor])
+        }
+      }
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [results, selected, onClose])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [results, cursor, multiSelected, onClose])
 
-  function copySkill(skill: SkillEntry | undefined) {
+  function copySingle(skill: SkillEntry | undefined) {
     if (!skill) return
     const cmd = skill.invocationCommand
-    navigator.clipboard.writeText(cmd).catch(() => {
-      const el = document.createElement('textarea')
-      el.value = cmd
-      document.body.appendChild(el)
-      el.select()
-      document.execCommand('copy')
-      document.body.removeChild(el)
+    navigator.clipboard.writeText(cmd).catch(() => {})
+    setCopied(true)
+    setTimeout(() => { setCopied(false); onClose() }, 700)
+  }
+
+  function copyMulti() {
+    const cmds = results
+      .filter(s => multiSelected.has(`${s.pluginName}:${s.name}`))
+      .map(s => s.invocationCommand)
+      .join('\n')
+    navigator.clipboard.writeText(cmds).catch(() => {})
+    setCopied(true)
+    setTimeout(() => { setCopied(false); onClose() }, 700)
+  }
+
+  function toggleMulti(skill: SkillEntry) {
+    const key = `${skill.pluginName}:${skill.name}`
+    setMultiSelected(prev => {
+      const n = new Set(prev)
+      n.has(key) ? n.delete(key) : n.add(key)
+      return n
     })
-    setCopied(cmd)
-    setTimeout(() => { setCopied(null); onClose() }, 700)
   }
 
   return (
@@ -95,8 +110,8 @@ export function CommandPalette({ skills, onClose }: Props) {
         <input
           ref={inputRef}
           value={query}
-          onChange={e => { setQuery(e.target.value); setSelected(0) }}
-          placeholder="Search skills... (↑↓ navigate, ↵ copy, esc close)"
+          onChange={e => { setQuery(e.target.value) }}
+          placeholder="Search skills... (↑↓ navigate, Space select, ↵ copy)"
           style={{ padding: '13px 16px', fontSize: '14px', border: 'none', borderBottom: '1px solid var(--border)', background: 'transparent', color: 'var(--text)', outline: 'none' }}
         />
         <div style={{ overflowY: 'auto', flex: 1 }}>
@@ -105,33 +120,64 @@ export function CommandPalette({ skills, onClose }: Props) {
               No skills found for &ldquo;{query}&rdquo;
             </div>
           ) : (
-            results.map((skill, i) => (
-              <div
-                key={`${skill.pluginName}:${skill.name}`}
-                onClick={() => copySkill(skill)}
-                style={{
-                  padding: '9px 16px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px',
-                  background: i === selected ? 'var(--surface-2)' : 'transparent',
-                  borderBottom: '1px solid var(--border)',
-                  transition: 'background 0.08s',
-                }}
-                onMouseEnter={() => setSelected(i)}
-              >
-                <code style={{ fontSize: '12px', color: copied === skill.invocationCommand ? '#22c55e' : 'var(--primary)', fontFamily: 'monospace', flexShrink: 0 }}>
-                  {copied === skill.invocationCommand ? '✓ copied' : skill.invocationCommand}
-                </code>
-                <span style={{ fontSize: '12px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                  {skill.name}
-                </span>
-                <span style={{ fontSize: '10px', color: 'var(--text-dim)', flexShrink: 0, background: 'var(--surface-2)', padding: '1px 5px', borderRadius: '3px' }}>
-                  {skill.pluginName}
-                </span>
-              </div>
-            ))
+            results.map((skill, i) => {
+              const key = `${skill.pluginName}:${skill.name}`
+              const isChecked = multiSelected.has(key)
+              const isCursor = i === cursor
+              return (
+                <div
+                  key={key}
+                  onClick={() => { toggleMulti(skill); setCursor(i) }}
+                  style={{
+                    padding: '9px 16px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px',
+                    background: isChecked
+                      ? 'rgba(99,102,241,0.12)'
+                      : isCursor ? 'var(--surface-2)' : 'transparent',
+                    borderBottom: '1px solid var(--border)',
+                    borderLeft: isChecked ? '3px solid var(--primary)' : '3px solid transparent',
+                    transition: 'background 0.08s',
+                  }}
+                  onMouseEnter={() => setCursor(i)}
+                >
+                  {/* Mini checkbox */}
+                  <div style={{
+                    width: '14px', height: '14px', borderRadius: '3px', flexShrink: 0,
+                    border: `1px solid ${isChecked ? 'var(--primary)' : 'var(--border)'}`,
+                    background: isChecked ? 'var(--primary)' : 'transparent',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    {isChecked && <span style={{ color: '#fff', fontSize: '9px', lineHeight: 1 }}>✓</span>}
+                  </div>
+                  <code style={{ fontSize: '12px', color: 'var(--primary)', fontFamily: 'monospace', flexShrink: 0 }}>
+                    {skill.invocationCommand}
+                  </code>
+                  <span style={{ fontSize: '12px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                    {skill.name}
+                  </span>
+                  <span style={{ fontSize: '10px', color: 'var(--text-dim)', flexShrink: 0, background: 'var(--surface-2)', padding: '1px 5px', borderRadius: '3px' }}>
+                    {skill.pluginName}
+                  </span>
+                </div>
+              )
+            })
           )}
         </div>
-        <div style={{ padding: '6px 16px', borderTop: '1px solid var(--border)', fontSize: '10px', color: 'var(--text-dim)', display: 'flex', gap: '12px' }}>
-          <span>↑↓ navigate</span><span>↵ copy &amp; close</span><span>esc close</span>
+        <div style={{ padding: '6px 16px', borderTop: '1px solid var(--border)', fontSize: '10px', color: 'var(--text-dim)', display: 'flex', gap: '12px', alignItems: 'center' }}>
+          {copied ? (
+            <span style={{ color: '#22c55e', fontWeight: 600 }}>✓ 복사됨!</span>
+          ) : (
+            <>
+              <span>↑↓ navigate</span>
+              <span>Space / click select</span>
+              <span>↵ {multiSelected.size > 0 ? `copy ${multiSelected.size}` : 'copy'} &amp; close</span>
+              <span>esc close</span>
+              {multiSelected.size > 0 && (
+                <span style={{ marginLeft: 'auto', color: 'var(--primary)', fontWeight: 600 }}>
+                  {multiSelected.size}개 선택됨
+                </span>
+              )}
+            </>
+          )}
         </div>
       </div>
     </div>

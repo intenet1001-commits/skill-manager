@@ -1,41 +1,13 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-
-interface Recommendation {
-  name: string
-  cmd: string
-  plugin: string
-  reason: string
-}
-
-interface ProjectContext {
-  path: string
-  name: string
-  techs: string[]
-  summary: string
-  claudeMd: string | null
-}
-
-interface RecentProject {
-  name: string
-  path: string
-  techs: string[]
-  modifiedAt: number
-}
-
-interface ProjectResult {
-  projectPath: string  // "default" if no project
-  projectName: string
-  recs: Recommendation[]
-  fallback: boolean
-  loading: boolean
-  error: string | null
-  streamText: string
-}
+import { sanitizeGoal } from '@/lib/sanitize'
+import { useProjectContext } from '@/hooks/useProjectContext'
+import { useRecommendStream } from '@/hooks/useRecommendStream'
+import { InlineFolderPanel } from './InlineFolderPanel'
+import { RecommendResults } from './RecommendResults'
 
 const HISTORY_KEY = 'skill-manager-ai-history'
-const PROJECTS_KEY = 'sm-projects'
 const MAX_HISTORY = 5
 
 const TEMPLATES = [
@@ -47,12 +19,6 @@ const TEMPLATES = [
   '문서를 작성해주세요',
 ]
 
-function sanitizeGoalSuffix(text: string): string {
-  // Strip only control chars — markdown chars are safe (server uses shell:false).
-  // eslint-disable-next-line no-control-regex
-  return text.slice(0, 5000).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '').trim()
-}
-
 function loadHistory(): string[] {
   try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]') } catch { return [] }
 }
@@ -63,16 +29,6 @@ function saveHistory(goal: string, prev: string[]): string[] {
   return updated
 }
 
-const ERROR_MSGS: Record<string, string> = {
-  not_installed: 'Claude Code를 찾을 수 없습니다. claude.ai/code에서 설치해주세요.',
-  auth: '로그인이 필요합니다. 터미널에서 claude login을 실행해주세요.',
-  in_progress: '동시 요청 한도 초과. 잠시 후 다시 시도해주세요.',
-  parse: 'AI 응답 파싱에 실패했습니다. 다시 시도해주세요.',
-  failed: 'Claude 실행에 실패했습니다. 다시 시도해주세요.',
-  spawn: 'Claude 프로세스를 시작할 수 없습니다.',
-  index_missing: 'npm run build-index를 먼저 실행해주세요.',
-}
-
 export function AIPanel() {
   const [goal, setGoal] = useState('')
   const [history, setHistory] = useState<string[]>([])
@@ -81,47 +37,48 @@ export function AIPanel() {
   const [selectedSkills, setSelectedSkills] = useState<Set<string>>(new Set()) // "projectPath:index"
   const [runStatus, setRunStatus] = useState<string | null>(null)
   const [skipPerms, setSkipPerms] = useState(false)
+  const [installedPluginNames, setInstalledPluginNames] = useState<Set<string>>(new Set())
   const [isDragOver, setIsDragOver] = useState(false)
   const [droppedFiles, setDroppedFiles] = useState<Array<{ name: string; charCount: number }>>([])
   const [dropError, setDropError] = useState<string | null>(null)
   const [showContextPreview, setShowContextPreview] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  // Multi-project state
-  const [projects, setProjects] = useState<ProjectContext[]>([])
+  // Multi-project state (via hook)
+  const {
+    projects, setProjects,
+    loadingContext, loadingPath,
+    pathError, setPathError,
+    recentProjects,
+    inlinePath, setInlinePath,
+    showInlinePath, setShowInlinePath,
+    addedMsg,
+    loadProjectContext,
+    handlePickFolder,
+    handleOsPicker,
+    removeProject,
+  } = useProjectContext()
+
   const [showProjectPicker, setShowProjectPicker] = useState(false)
   const [pickerSearch, setPickerSearch] = useState('')
-  const [pathError, setPathError] = useState<string | null>(null)
-  const [loadingContext, setLoadingContext] = useState(false)
-  const [loadingPath, setLoadingPath] = useState<string | null>(null)
-  const [recentProjects, setRecentProjects] = useState<RecentProject[]>([])
-  // Inline path input shown after OS folder picker can't auto-match
-  const [inlinePath, setInlinePath] = useState('')
-  const [showInlinePath, setShowInlinePath] = useState(false)
-  const [addedMsg, setAddedMsg] = useState<string | null>(null)
 
-  // Per-project recommendation results
-  const [projectResults, setProjectResults] = useState<ProjectResult[]>([])
+  // Per-project recommendation results (via hook)
+  const { projectResults, setProjectResults, fetchForProject, cancelAll } = useRecommendStream()
 
   const pickerSearchRef = useRef<HTMLInputElement>(null)
   const pickerRef = useRef<HTMLDivElement>(null)
-  const cancelRefs = useRef<Array<(() => void) | null>>([])
 
-  // Load persisted projects on mount
+  // Load history on mount; cancel any in-flight streams on unmount
   useEffect(() => {
     setHistory(loadHistory())
-    fetch('/api/recent-projects').then(r => r.json()).then(setRecentProjects).catch(() => {})
-    try {
-      const saved = JSON.parse(localStorage.getItem(PROJECTS_KEY) || '[]')
-      if (Array.isArray(saved) && saved.length > 0) setProjects(saved)
-    } catch {}
-    return () => { cancelRefs.current.forEach(c => c?.()) }
-  }, [])
-
-  // Persist projects to localStorage whenever they change
-  useEffect(() => {
-    try { localStorage.setItem(PROJECTS_KEY, JSON.stringify(projects)) } catch {}
-  }, [projects])
+    fetch('/api/plugin-sources')
+      .then(r => r.json())
+      .then((sources: Array<{ name: string }>) => {
+        setInstalledPluginNames(new Set(sources.map(s => s.name.toLowerCase())))
+      })
+      .catch(() => {})
+    return () => { cancelAll() }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!showProjectPicker) return
@@ -141,140 +98,13 @@ export function AIPanel() {
 
   // Note: skipPerms is opt-in only — do not auto-enable
 
-  async function handlePickFolder() {
-    // Just open the inline panel — user picks from there
-    setInlinePath('')
-    setPathError(null)
-    setShowInlinePath(true)
-  }
-
-  async function handleOsPicker() {
-    try {
-      if (typeof window !== 'undefined' && 'showDirectoryPicker' in window) {
-        const handle = await (window as Window & { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }).showDirectoryPicker()
-        const folderName = handle.name
-        const match = recentProjects.find(p => p.name === folderName)
-        if (match) {
-          loadProjectContext(match.path)
-        } else {
-          setInlinePath('')
-          setPathError(`"${folderName}" 폴더의 절대 경로를 입력하세요`)
-        }
-      }
-    } catch (e: unknown) {
-      if (e instanceof Error && e.name !== 'AbortError') {
-        setPathError('폴더 선택에 실패했습니다. 아래에서 직접 입력하세요.')
-      }
-    }
-  }
-
-  async function loadProjectContext(path: string) {
-    const p = path.trim()
-    if (!p) return
-    if (projects.some(proj => proj.path === p)) {
-      setAddedMsg(`"${p.split('/').pop()}" 이미 추가됨`)
-      setTimeout(() => setAddedMsg(null), 2000)
-      return
-    }
-    setLoadingContext(true)
-    setLoadingPath(p)
-    setPathError(null)
-    setShowProjectPicker(false)
-    try {
-      const res = await fetch(`/api/project-context?path=${encodeURIComponent(p)}`)
-      if (res.status === 404) { setPathError('폴더를 찾을 수 없습니다.'); return }
-      if (!res.ok) { setPathError('컨텍스트 로드 실패'); return }
-      const data = await res.json()
-      setProjects(prev => [...prev, data])
-      setPickerSearch('')
-      setPathError(null)
-      setInlinePath('')
-      setAddedMsg(`✓ "${data.name}" 추가됨`)
-      setTimeout(() => setAddedMsg(null), 2500)
-    } catch { setPathError('연결 오류가 발생했습니다.') }
-    finally { setLoadingContext(false); setLoadingPath(null) }
-  }
-
-  function removeProject(path: string) {
-    setProjects(prev => prev.filter(p => p.path !== path))
-  }
-
   const anyLoading = projectResults.some(r => r.loading)
-
-  async function fetchForProject(
-    target: { projectPath?: string; projectContext?: string; projectName: string },
-    idx: number
-  ) {
-    const controller = new AbortController()
-    cancelRefs.current[idx] = () => controller.abort()
-
-    try {
-      const resp = await fetch('/api/recommend', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          goal: goal.trim(),
-          projectContext: target.projectContext,
-          projectPath: target.projectPath,
-        }),
-        signal: controller.signal,
-      })
-
-      if (resp.status === 429) {
-        setProjectResults(prev => prev.map((r, i) => i === idx
-          ? { ...r, loading: false, error: ERROR_MSGS.in_progress }
-          : r))
-        return
-      }
-
-      if (!resp.body) throw new Error('No response body')
-
-      const reader = resp.body.getReader()
-      const decoder = new TextDecoder()
-      let buf = ''
-
-      for (;;) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buf += decoder.decode(value, { stream: true })
-        const lines = buf.split('\n')
-        buf = lines.pop() ?? ''
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue
-          const data = JSON.parse(line.slice(6))
-          if (data.text) {
-            setProjectResults(prev => prev.map((r, i) => i === idx
-              ? { ...r, streamText: r.streamText + data.text }
-              : r))
-          } else if (data.done && data.recommendations) {
-            setProjectResults(prev => prev.map((r, i) => i === idx
-              ? { ...r, loading: false, recs: data.recommendations, fallback: !!data.fallback, streamText: '' }
-              : r))
-          } else if (data.error) {
-            setProjectResults(prev => prev.map((r, i) => i === idx
-              ? { ...r, loading: false, error: ERROR_MSGS[data.error] ?? '오류가 발생했습니다.', streamText: '' }
-              : r))
-          }
-        }
-      }
-    } catch (e: unknown) {
-      if (e instanceof Error && e.name !== 'AbortError') {
-        setProjectResults(prev => prev.map((r, i) => i === idx
-          ? { ...r, loading: false, error: '연결 오류. 서버가 실행 중인지 확인해주세요.' }
-          : r))
-      }
-    } finally {
-      cancelRefs.current[idx] = null
-      setProjectResults(prev => prev.map((r, i) => i === idx ? { ...r, loading: false } : r))
-    }
-  }
 
   async function handleSubmit() {
     if (!goal.trim() || anyLoading) return
     setHistory(prev => saveHistory(goal.trim(), prev))
     setSelectedSkills(new Set())
-    cancelRefs.current.forEach(c => c?.())
-    cancelRefs.current = []
+    cancelAll()
 
     const targets = projects.length > 0
       ? projects.map(p => ({
@@ -295,9 +125,7 @@ export function AIPanel() {
       error: null,
       streamText: '',
     })))
-    cancelRefs.current = new Array(targets.length).fill(null)
-
-    await Promise.all(targets.map((t, idx) => fetchForProject(t, idx)))
+    await Promise.all(targets.map((t, idx) => fetchForProject(t, idx, goal.trim())))
   }
 
   function toggleSkill(projectPath: string, idx: number) {
@@ -317,7 +145,7 @@ export function AIPanel() {
   }
 
   async function runSelected() {
-    const goalSuffix = goal.trim() ? ` ${sanitizeGoalSuffix(goal.trim())}` : ''
+    const goalSuffix = goal.trim() ? ` ${sanitizeGoal(goal.trim())}` : ''
 
     // Group selected skills by project path
     const groups = new Map<string, string[]>()
@@ -495,110 +323,22 @@ export function AIPanel() {
 
         </div>
 
-        {/* Inline folder panel — stays open for multiple additions */}
         {showInlinePath && (
-          <div style={{
-            marginTop: '8px', padding: '10px 12px', borderRadius: '9px',
-            border: '1px solid var(--border)', background: 'var(--surface)',
-            display: 'flex', flexDirection: 'column', gap: '8px',
-          }}>
-            {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                프로젝트 추가{projects.length > 0 ? ` (${projects.length}개 선택됨)` : ''}
-              </span>
-              <button onClick={() => { setShowInlinePath(false); setInlinePath(''); setPathError(null) }}
-                style={{ fontSize: '11px', padding: '2px 6px', borderRadius: '4px', border: 'none', background: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>✕ 닫기</button>
-            </div>
-
-            {/* Added projects list */}
-            {projects.length > 0 && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                {projects.map(p => (
-                  <span key={p.path} style={{
-                    display: 'inline-flex', alignItems: 'center', gap: '4px',
-                    padding: '2px 8px', borderRadius: '5px', fontSize: '11px',
-                    background: 'rgba(99,102,241,0.12)', color: 'var(--primary)',
-                    border: '1px solid rgba(99,102,241,0.3)',
-                  }}>
-                    ✓ {p.name}
-                    <button onClick={() => removeProject(p.path)} style={{ fontSize: '10px', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '0 1px' }}>✕</button>
-                  </span>
-                ))}
-              </div>
-            )}
-
-            {addedMsg && (
-              <div style={{ fontSize: '11px', color: '#22c55e', fontWeight: 500 }}>{addedMsg}</div>
-            )}
-
-            {pathError && (
-              <div style={{ fontSize: '11px', color: '#f59e0b' }}>💡 {pathError}</div>
-            )}
-
-            {/* Path input row */}
-            <div style={{ display: 'flex', gap: '6px' }}>
-              <button onClick={handleOsPicker} title="OS 폴더 선택" style={{
-                padding: '7px 10px', borderRadius: '7px', border: '1px solid var(--border)',
-                background: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '14px', flexShrink: 0,
-              }}>📂</button>
-              <input
-                autoFocus
-                value={inlinePath}
-                onChange={e => { setInlinePath(e.target.value); setPathError(null) }}
-                onKeyDown={e => {
-                  if (e.key === 'Enter' && inlinePath.trim()) loadProjectContext(inlinePath)
-                  if (e.key === 'Escape') { setShowInlinePath(false); setInlinePath(''); setPathError(null) }
-                }}
-                placeholder="/Users/.../my-project"
-                style={{
-                  flex: 1, padding: '7px 10px', borderRadius: '7px',
-                  border: '1px solid var(--border)', background: 'var(--bg)',
-                  color: 'var(--text)', fontSize: '12px', fontFamily: 'monospace', outline: 'none',
-                }}
-              />
-              <button
-                onClick={() => inlinePath.trim() && loadProjectContext(inlinePath)}
-                disabled={!inlinePath.trim() || loadingContext}
-                style={{
-                  padding: '7px 14px', borderRadius: '7px', border: 'none', flexShrink: 0,
-                  background: inlinePath.trim() ? 'var(--primary)' : 'var(--border)',
-                  color: '#fff', fontSize: '12px', fontWeight: 600,
-                  cursor: inlinePath.trim() ? 'pointer' : 'not-allowed',
-                }}
-              >{loadingContext ? '⟳' : '추가'}</button>
-            </div>
-
-            {/* Recent projects list */}
-            {recentProjects.filter(p => !projects.some(proj => proj.path === p.path)).length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                <div style={{ fontSize: '10px', color: 'var(--text-dim)', paddingLeft: '2px' }}>최근 프로젝트</div>
-                {recentProjects
-                  .filter(p => !projects.some(proj => proj.path === p.path))
-                  .slice(0, 8)
-                  .map(p => (
-                    <button key={p.path} onClick={() => loadProjectContext(p.path)}
-                      disabled={loadingPath === p.path}
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px',
-                        borderRadius: '6px', border: 'none',
-                        background: loadingPath === p.path ? 'rgba(99,102,241,0.08)' : 'none',
-                        color: 'var(--text)', cursor: 'pointer', fontSize: '12px', textAlign: 'left',
-                      }}
-                      onMouseEnter={e => { if (loadingPath !== p.path) e.currentTarget.style.background = 'rgba(99,102,241,0.05)' }}
-                      onMouseLeave={e => { e.currentTarget.style.background = loadingPath === p.path ? 'rgba(99,102,241,0.08)' : 'none' }}
-                    >
-                      <span style={{ flexShrink: 0 }}>{loadingPath === p.path ? '⟳' : '📁'}</span>
-                      <span style={{ fontWeight: 500, flexShrink: 0 }}>{p.name}</span>
-                      <span style={{ fontSize: '10px', color: 'var(--text-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{p.path}</span>
-                      {p.techs.slice(0, 2).map(t => (
-                        <span key={t} style={{ fontSize: '9px', padding: '1px 4px', borderRadius: '3px', background: 'rgba(99,102,241,0.1)', color: 'var(--primary)', flexShrink: 0 }}>{t}</span>
-                      ))}
-                    </button>
-                  ))}
-              </div>
-            )}
-          </div>
+          <InlineFolderPanel
+            projects={projects}
+            loadingContext={loadingContext}
+            loadingPath={loadingPath}
+            pathError={pathError}
+            recentProjects={recentProjects}
+            inlinePath={inlinePath}
+            addedMsg={addedMsg}
+            onInlinePathChange={setInlinePath}
+            onClearPathError={() => setPathError(null)}
+            onLoad={loadProjectContext}
+            onOsPicker={handleOsPicker}
+            onRemove={removeProject}
+            onClose={() => { setShowInlinePath(false); setInlinePath(''); setPathError(null) }}
+          />
         )}
       </div>
 
@@ -908,163 +648,24 @@ export function AIPanel() {
         </div>
       </div>
 
-      {/* Results */}
-      {projectResults.length > 0 && (
-        <div>
-          {/* Global controls */}
-          {totalRecs > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', flexWrap: 'wrap' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer', fontSize: '12px', color: 'var(--text-muted)', userSelect: 'none' }}>
-                <input
-                  type="checkbox"
-                  checked={selectedSkills.size === allKeys.length && allKeys.length > 0}
-                  ref={el => { if (el) el.indeterminate = selectedSkills.size > 0 && selectedSkills.size < allKeys.length }}
-                  onChange={toggleAll}
-                  style={{ cursor: 'pointer', width: '14px', height: '14px' }}
-                />
-                전체 선택
-              </label>
-              {selectedSkills.size > 0 && (
-                <>
-                  <label style={{
-                    display: 'inline-flex', alignItems: 'center', gap: '4px',
-                    fontSize: '11px', color: skipPerms ? '#f59e0b' : 'var(--text-muted)',
-                    cursor: 'pointer', userSelect: 'none', padding: '3px 8px', borderRadius: '5px',
-                    border: `1px solid ${skipPerms ? '#f59e0b' : 'var(--border)'}`,
-                    background: skipPerms ? 'rgba(245,158,11,0.08)' : 'none',
-                    transition: 'all 0.15s',
-                  }} title="--dangerously-skip-permissions 플래그로 실행">
-                    <input type="checkbox" checked={skipPerms}
-                      onChange={e => setSkipPerms(e.target.checked)}
-                      style={{ cursor: 'pointer', accentColor: '#f59e0b' }}
-                    />
-                    ⚡ 권한 스킵
-                  </label>
-                  <button onClick={runSelected} style={{
-                    padding: '4px 14px', borderRadius: '6px', fontSize: '12px', fontWeight: 600,
-                    background: skipPerms ? '#f59e0b' : 'var(--primary)',
-                    color: '#fff', border: 'none', cursor: 'pointer',
-                    display: 'inline-flex', alignItems: 'center', gap: '5px',
-                  }}>
-                    {selectedSkills.size === 1 ? '▶ 실행' : `▶ 팀 실행 (Agent Teams)`}{skipPerms ? ' 🔓' : ''}
-                  </button>
-                </>
-              )}
-            </div>
-          )}
-          {runStatus && (
-            <div style={{ marginBottom: '8px' }}>
-              <span style={{ fontSize: '12px', color: runStatus.startsWith('❌') ? '#ef4444' : 'var(--primary)' }}>
-                {runStatus}
-              </span>
-            </div>
-          )}
-
-          {/* Per-project result sections */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {projectResults.map((pr) => (
-              <div key={pr.projectPath}>
-                {/* Section header */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                  {projectResults.length > 1 && (
-                    <span style={{ fontSize: '12px', color: 'var(--primary)', fontWeight: 600 }}>📂 {pr.projectName}</span>
-                  )}
-                  {pr.loading && <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>🔍 분석 중...</span>}
-                  {!pr.loading && !pr.error && pr.recs.length > 0 && (
-                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                      {pr.fallback
-                        ? '⚠️ 시간 초과 — 키워드 검색 결과'
-                        : `✨ ${pr.recs.length}개 스킬 추천됨${projectResults.length === 1 && pr.projectName !== '기본' ? ` (${pr.projectName} 기준)` : ''}`}
-                    </span>
-                  )}
-                </div>
-
-                {/* Streaming indicator (spinner while Claude responds) */}
-                {pr.streamText && (
-                  <div style={{
-                    padding: '10px 14px', borderRadius: '8px',
-                    background: 'var(--surface)', border: '1px solid var(--border)',
-                    marginBottom: '8px', fontSize: '12px', color: 'var(--text-muted)',
-                    display: 'flex', alignItems: 'center', gap: '8px',
-                  }}>
-                    <span style={{
-                      display: 'inline-block', width: '14px', height: '14px',
-                      border: '2px solid var(--border)', borderTopColor: 'var(--primary)',
-                      borderRadius: '50%', animation: 'spin 0.8s linear infinite', flexShrink: 0,
-                    }} />
-                    <span style={{ color: 'var(--primary)' }}>Claude가 분석 중...</span>
-                  </div>
-                )}
-
-                {/* Error */}
-                {pr.error && (
-                  <div style={{
-                    padding: '10px 14px', borderRadius: '8px',
-                    background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)',
-                    color: '#ef4444', fontSize: '13px', marginBottom: '8px',
-                  }}>❌ {pr.error}</div>
-                )}
-
-                {/* Skill cards */}
-                {pr.recs.length > 0 && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    {pr.recs.map((r, i) => {
-                      const key = `${pr.projectPath}:${i}`
-                      const selected = selectedSkills.has(key)
-                      return (
-                        <div key={i} onClick={() => toggleSkill(pr.projectPath, i)} style={{
-                          padding: '10px 14px', borderRadius: '10px',
-                          background: selected ? 'rgba(99,102,241,0.07)' : 'var(--surface)',
-                          border: `1px solid ${selected ? 'var(--primary)' : i === 0 ? 'rgba(99,102,241,0.3)' : 'var(--border)'}`,
-                          display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer',
-                          transition: 'border-color 0.15s, background 0.15s',
-                        }}>
-                          <input
-                            type="checkbox"
-                            checked={selected}
-                            onChange={() => toggleSkill(pr.projectPath, i)}
-                            onClick={e => e.stopPropagation()}
-                            style={{ marginTop: '3px', cursor: 'pointer', width: '14px', height: '14px', flexShrink: 0, accentColor: 'var(--primary)' }}
-                          />
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px', flexWrap: 'wrap' }}>
-                              <code style={{
-                                padding: '2px 8px', borderRadius: '4px', fontSize: '13px',
-                                fontWeight: 700, color: 'var(--primary)', background: 'rgba(99,102,241,0.1)',
-                              }}>{r.cmd}</code>
-                              <span style={{ fontSize: '11px', color: 'var(--text-muted)', background: 'var(--surface)', border: '1px solid var(--border)', padding: '1px 6px', borderRadius: '4px' }}>{r.plugin}</span>
-                            </div>
-                            <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{r.reason}</div>
-                          </div>
-                          <button onClick={e => { e.stopPropagation(); copyCmd(r.cmd) }} style={{
-                            padding: '3px 9px', borderRadius: '5px', background: 'none',
-                            border: '1px solid var(--border)',
-                            color: copied === r.cmd ? 'var(--primary)' : 'var(--text-muted)',
-                            cursor: 'pointer', fontSize: '11px', flexShrink: 0,
-                          }}>{copied === r.cmd ? '✓' : '복사'}</button>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Empty state */}
-      {!anyLoading && projectResults.length === 0 && (
-        <div style={{ textAlign: 'center', padding: '48px 20px', color: 'var(--text-muted)' }}>
-          <div style={{ fontSize: '36px', marginBottom: '12px' }}>✨</div>
-          <div style={{ fontSize: '15px', marginBottom: '6px', color: 'var(--text)' }}>자연어로 스킬을 찾아보세요</div>
-          <div style={{ fontSize: '13px' }}>
-            {projects.length > 0
-              ? `${projects.map(p => p.name).join(', ')} 프로젝트 컨텍스트가 적용됩니다.`
-              : '📂 폴더를 추가하면 기술 스택이 자동 감지되어 더 정확한 추천을 받을 수 있습니다.'}
-          </div>
-        </div>
-      )}
+      {/* Results + empty state */}
+      <RecommendResults
+        projectResults={projectResults}
+        projects={projects}
+        selectedSkills={selectedSkills}
+        anyLoading={anyLoading}
+        skipPerms={skipPerms}
+        copied={copied}
+        runStatus={runStatus}
+        totalRecs={totalRecs}
+        allKeys={allKeys}
+        onToggleSkill={toggleSkill}
+        onToggleAll={toggleAll}
+        onRunSelected={runSelected}
+        onSkipPermsChange={setSkipPerms}
+        onCopyCmd={copyCmd}
+        installedPluginNames={installedPluginNames}
+      />
     </div>
   )
 }

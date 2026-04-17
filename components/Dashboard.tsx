@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import Fuse from 'fuse.js'
 import { SkillEntry, Filters } from '@/lib/types'
 import { SearchBar } from './SearchBar'
@@ -15,7 +15,7 @@ import { ClaudeAuthTip } from './ClaudeAuthTip'
 
 type Mode = 'browse' | 'ai' | 'sources'
 
-const PAGE_SIZE = 60
+const PAGE_SIZE = 120
 
 type SortKey = 'name' | 'plugin' | 'phase'
 
@@ -51,27 +51,29 @@ export function Dashboard() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [copyAllDone, setCopyAllDone] = useState(false)
 
-  useEffect(() => {
-    // 1. Load immediately from disk (no browser cache)
+  function refreshIndex() {
     fetch('/skills-index.json', { cache: 'no-store' })
       .then(r => r.json())
-      .then((data: SkillEntry[]) => { setSkills(data); setLoadingSkills(false) })
-      .catch(() => setLoadingSkills(false))
+      .then((data: SkillEntry[]) => setSkills(data))
+      .catch(() => {})
+  }
 
-    // 2. Background rebuild: silently re-scan filesystem and update state if anything changed
-    //    This ensures deleted/added skills are reflected on every page load without manual ↺
+  useEffect(() => {
+    // 1. Trigger rebuild first so the file on disk is fresh, then load it
     fetch('/api/build-index', { method: 'POST' })
       .then(r => r.json())
-      .then(result => {
-        if (!result.unchanged) {
-          // Index changed → re-fetch updated file and replace state (no full page reload)
-          fetch('/skills-index.json', { cache: 'no-store' })
-            .then(r => r.json())
-            .then((data: SkillEntry[]) => setSkills(data))
-            .catch(() => {})
-        }
+      .then(() => {
+        // Always re-fetch after rebuild (file is now current regardless of changed/unchanged)
+        refreshIndex()
+        setLoadingSkills(false)
       })
-      .catch(() => {})
+      .catch(() => {
+        // Rebuild failed — fall back to whatever is on disk
+        fetch('/skills-index.json', { cache: 'no-store' })
+          .then(r => r.json())
+          .then((data: SkillEntry[]) => { setSkills(data); setLoadingSkills(false) })
+          .catch(() => setLoadingSkills(false))
+      })
   }, [])
 
   const fuse = useMemo(() => new Fuse(skills, {
@@ -210,8 +212,37 @@ export function Dashboard() {
     }).catch(() => {})
   }, [selected, skillByKey])
 
+  const sentinelRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el) return
+    const obs = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && filtered.length > page * PAGE_SIZE) {
+        setPage(p => p + 1)
+      }
+    }, { rootMargin: '200px' })
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [filtered.length, page])
+
   const paged = filtered.slice(0, page * PAGE_SIZE)
   const hasMore = filtered.length > paged.length
+
+  // Phase grouping for sort='phase' view
+  const pagedWithGroups = useMemo(() => {
+    if (sort !== 'phase') return null
+    const groups: Array<{ phase: string; skills: SkillEntry[] }> = []
+    let current: { phase: string; skills: SkillEntry[] } | null = null
+    for (const skill of paged) {
+      const ph = skill.pdcaPhase || 'other'
+      if (!current || current.phase !== ph) {
+        current = { phase: ph, skills: [] }
+        groups.push(current)
+      }
+      current.skills.push(skill)
+    }
+    return groups
+  }, [paged, sort])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
@@ -292,7 +323,7 @@ export function Dashboard() {
 
         {/* Row 2: StatsBar */}
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px', paddingTop: '6px', borderTop: '1px solid var(--border)' }}>
-          <StatsBar all={skills} filtered={filtered} />
+          <StatsBar all={skills} filtered={filtered} onRefresh={refreshIndex} />
         </div>
       </header>
 
@@ -315,7 +346,7 @@ export function Dashboard() {
         </div>
 
         {/* Grid */}
-        <main style={{ flex: 1, overflowY: 'auto', padding: '16px', scrollbarGutter: 'stable' }}>
+        <main style={{ flex: 1, overflowY: 'auto', padding: selectionMode && selected.size > 0 ? '16px 16px 80px 16px' : '16px', scrollbarGutter: 'stable' }}>
 
           {/* Quick search chips + sort */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px', flexWrap: 'wrap' }}>
@@ -395,41 +426,69 @@ export function Dashboard() {
             </div>
           ) : (
             <>
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(min(300px, 100%), 1fr))',
-                gap: '12px',
-              }}>
-                {paged.map(skill => {
-                  const cardKey = `${skill.pluginName}:${skill.name}`
-                  return (
-                    <SkillCard
-                      key={cardKey}
-                      skill={skill}
-                      onRun={handleRunSkill}
-                      selectionMode={selectionMode}
-                      isSelected={selected.has(cardKey)}
-                      onToggleSelect={() => toggleSelected(cardKey)}
-                    />
-                  )
-                })}
-              </div>
+              {sort === 'phase' && pagedWithGroups ? (
+                pagedWithGroups.map(group => (
+                  <div key={group.phase} style={{ marginBottom: '20px' }}>
+                    <div style={{
+                      fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em',
+                      textTransform: 'uppercase', color: 'var(--primary)',
+                      padding: '4px 8px', marginBottom: '8px',
+                      borderLeft: '3px solid var(--primary)',
+                      background: 'rgba(99,102,241,0.06)',
+                      borderRadius: '0 4px 4px 0',
+                    }}>
+                      {group.phase === 'other' ? '— (no phase)' : group.phase}
+                      <span style={{ marginLeft: '8px', color: 'var(--text-dim)', fontWeight: 400 }}>
+                        {group.skills.length}
+                      </span>
+                    </div>
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fill, minmax(min(300px, 100%), 1fr))',
+                      gap: '12px',
+                    }}>
+                      {group.skills.map(skill => {
+                        const cardKey = `${skill.pluginName}:${skill.name}`
+                        return (
+                          <SkillCard
+                            key={cardKey}
+                            skill={skill}
+                            onRun={handleRunSkill}
+                            selectionMode={selectionMode}
+                            isSelected={selected.has(cardKey)}
+                            onToggleSelect={() => toggleSelected(cardKey)}
+                          />
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(min(300px, 100%), 1fr))',
+                  gap: '12px',
+                }}>
+                  {paged.map(skill => {
+                    const cardKey = `${skill.pluginName}:${skill.name}`
+                    return (
+                      <SkillCard
+                        key={cardKey}
+                        skill={skill}
+                        onRun={handleRunSkill}
+                        selectionMode={selectionMode}
+                        isSelected={selected.has(cardKey)}
+                        onToggleSelect={() => toggleSelected(cardKey)}
+                      />
+                    )
+                  })}
+                </div>
+              )}
+              {/* IntersectionObserver sentinel — triggers page increment when scrolled into view */}
+              <div ref={sentinelRef} style={{ height: '1px' }} />
               {hasMore && (
-                <div style={{ textAlign: 'center', padding: '24px' }}>
-                  <button
-                    onClick={() => setPage(p => p + 1)}
-                    style={{
-                      background: 'var(--surface)',
-                      border: '1px solid var(--border)',
-                      color: 'var(--text)',
-                      padding: '8px 24px',
-                      borderRadius: '8px',
-                      cursor: 'pointer',
-                      fontSize: '13px',
-                    }}
-                  >
-                    Load more ({filtered.length - paged.length} remaining)
-                  </button>
+                <div style={{ textAlign: 'center', padding: '16px 0 8px', color: 'var(--text-dim)', fontSize: '12px' }}>
+                  Loading more… ({filtered.length - paged.length} remaining)
                 </div>
               )}
             </>
