@@ -13,3 +13,4 @@ tests/debug_*.py
 
 # Root-level screenshot dumps
 /*.png
+node_modules

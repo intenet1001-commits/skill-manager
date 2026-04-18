@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { SkillEntry } from '@/lib/types'
 import { RECOMMENDED_REPOS, RecommendedRepo } from '@/lib/recommended-repos'
 
@@ -260,6 +260,7 @@ function GitHubSourcesModal({ sources, allSkills, onClose }: {
 export function SourcesPanel() {
   const [sources, setSources] = useState<PluginSource[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
   const [copiedAll, setCopiedAll] = useState(false)
   const [format, setFormat] = useState<'plain' | 'markdown' | 'json'>('markdown')
@@ -281,18 +282,32 @@ export function SourcesPanel() {
   const [updateState, setUpdateState] = useState<'idle' | 'running' | 'done'>('idle')
   const [updateResults, setUpdateResults] = useState<{ name: string; action: string; ok: boolean }[]>([])
   const [showUpdateResults, setShowUpdateResults] = useState(false)
+  const [installing, setInstalling] = useState(false)
+  const [updatingUrl, setUpdatingUrl] = useState<string | null>(null)
+  const [restartBanner, setRestartBanner] = useState(false)
+
+  const fetchSources = useCallback(async () => {
+    try {
+      const data = await fetch('/api/plugin-sources').then(r => r.json())
+      setSources(data)
+    } catch {
+      setSources([])
+    }
+  }, [])
 
   useEffect(() => {
-    fetch('/api/plugin-sources')
-      .then(r => r.json())
-      .then(setSources)
-      .catch(() => setSources([]))
-      .finally(() => setLoading(false))
+    fetchSources().finally(() => setLoading(false))
     fetch('/skills-index.json')
       .then(r => r.json())
       .then(setAllSkills)
       .catch(() => {})
-  }, [])
+  }, [fetchSources])
+
+  async function handleRefresh() {
+    setRefreshing(true)
+    await fetchSources()
+    setRefreshing(false)
+  }
 
   function getSourceSkills(source: PluginSource): SkillEntry[] {
     const n = source.name.toLowerCase()
@@ -329,15 +344,12 @@ export function SourcesPanel() {
       { label: '스킬', items: skills },
     ].filter(g => g.items.length > 0)
 
-    if (format === 'json') {
-      return JSON.stringify(sources, null, 2)
-    }
+    if (format === 'json') return JSON.stringify(sources, null, 2)
     if (format === 'plain') {
       return groups.map(g =>
         `# ${g.label}\n` + g.items.map(s => `${s.name}: ${s.url}`).join('\n')
       ).join('\n\n')
     }
-    // markdown
     return groups.map(g =>
       `## ${g.label}\n` + g.items.map(s => `- [${s.name}](${s.url})`).join('\n')
     ).join('\n\n')
@@ -349,21 +361,45 @@ export function SourcesPanel() {
     setTimeout(() => setCopiedAll(false), 2000)
   }
 
-  async function handleAddSource() {
+  async function handleInstallFromUrl() {
     const url = addUrl.trim()
     const name = addName.trim() || url.split('/').pop()?.replace(/\.git$/, '') || url
     if (!url) { setAddError('URL을 입력해주세요.'); return }
+    setInstalling(true)
+    setAddError(null)
     try {
       const res = await fetch('/api/plugin-sources', {
-        method: 'PUT',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, url, type: addType }),
       })
-      if (!res.ok) throw new Error('저장 실패')
-      setSources(prev => prev.some(s => s.url === url) ? prev : [...prev, { name, url, type: addType, manual: true }])
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || data.error || '설치 실패')
+      await fetchSources()
       setAddUrl(''); setAddName(''); setAddError(null); setShowAddForm(false)
+      if (data.restartRequired) setRestartBanner(true)
     } catch (e) {
-      setAddError(String(e))
+      setAddError(String(e instanceof Error ? e.message : e))
+    } finally {
+      setInstalling(false)
+    }
+  }
+
+  async function handleUpdate(s: PluginSource) {
+    setUpdatingUrl(s.url)
+    try {
+      const res = await fetch('/api/plugin-sources', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: s.name, url: s.url, type: s.type }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || data.error || '업데이트 실패')
+      if (data.restartRequired) setRestartBanner(true)
+    } catch (e) {
+      alert(String(e instanceof Error ? e.message : e))
+    } finally {
+      setUpdatingUrl(null)
     }
   }
 
@@ -439,6 +475,23 @@ export function SourcesPanel() {
 
   return (
     <div style={{ padding: '20px', maxWidth: '800px', margin: '0 auto' }}>
+
+      {/* Restart banner (install from URL) */}
+      {restartBanner && (
+        <div style={{
+          marginBottom: '16px', padding: '10px 14px', borderRadius: '8px',
+          background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.4)',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px',
+        }}>
+          <span style={{ fontSize: '12px', color: '#d97706', fontWeight: 600 }}>
+            설치 완료. Claude Code를 재시작해야 적용됩니다. (/clear 후 재시작)
+          </span>
+          <button onClick={() => setRestartBanner(false)} style={{
+            background: 'none', border: 'none', cursor: 'pointer', fontSize: '14px', color: '#d97706', flexShrink: 0,
+          }}>✕</button>
+        </div>
+      )}
+
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
         <div>
           <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', marginBottom: '3px' }}>
@@ -449,53 +502,64 @@ export function SourcesPanel() {
           </div>
         </div>
 
-        {sources.length > 0 && (
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            {/* Update all button */}
-            <button
-              onClick={handleUpdateAll}
-              disabled={updateState === 'running'}
-              title="설치된 모든 플러그인/스킬을 git pull로 최신화"
-              style={{
-                padding: '7px 14px', borderRadius: '7px', border: '1px solid var(--border)',
-                background: updateState === 'running' ? 'var(--surface)' : updateState === 'done' ? 'rgba(16,185,129,0.1)' : 'var(--surface)',
-                color: updateState === 'done' ? '#10b981' : 'var(--text-muted)',
-                cursor: updateState === 'running' ? 'wait' : 'pointer',
-                fontSize: '12px', fontWeight: 600,
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {/* Refresh button */}
+          <button onClick={handleRefresh} disabled={refreshing} title="새로고침" style={{
+            padding: '7px 12px', borderRadius: '7px', border: '1px solid var(--border)',
+            background: 'var(--surface)', color: 'var(--text-muted)', cursor: refreshing ? 'default' : 'pointer',
+            fontSize: '13px', opacity: refreshing ? 0.5 : 1,
+          }}>
+            {refreshing ? '⟳' : '↺'}
+          </button>
+
+          {sources.length > 0 && (
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              {/* Update all button */}
+              <button
+                onClick={handleUpdateAll}
+                disabled={updateState === 'running'}
+                title="설치된 모든 플러그인/스킬을 git pull로 최신화"
+                style={{
+                  padding: '7px 14px', borderRadius: '7px', border: '1px solid var(--border)',
+                  background: updateState === 'running' ? 'var(--surface)' : updateState === 'done' ? 'rgba(16,185,129,0.1)' : 'var(--surface)',
+                  color: updateState === 'done' ? '#10b981' : 'var(--text-muted)',
+                  cursor: updateState === 'running' ? 'wait' : 'pointer',
+                  fontSize: '12px', fontWeight: 600,
+                  display: 'inline-flex', alignItems: 'center', gap: '5px',
+                }}
+              >
+                {updateState === 'running' ? (
+                  <>
+                    <span style={{ display: 'inline-block', width: '11px', height: '11px', border: '2px solid var(--border)', borderTopColor: 'var(--primary)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                    업데이트 중...
+                  </>
+                ) : updateState === 'done' ? '✓ 업데이트 완료' : '↻ 전체 업데이트'}
+              </button>
+              {/* Format selector */}
+              <div style={{ display: 'flex', gap: '2px', padding: '3px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '7px' }}>
+                {(['markdown', 'plain', 'json'] as const).map(f => (
+                  <button key={f} onClick={() => setFormat(f)} style={{
+                    padding: '3px 10px', borderRadius: '5px', border: 'none', cursor: 'pointer',
+                    fontSize: '11px', fontWeight: format === f ? 600 : 400,
+                    background: format === f ? 'var(--primary)' : 'transparent',
+                    color: format === f ? '#fff' : 'var(--text-muted)',
+                  }}>{f}</button>
+                ))}
+              </div>
+              <button onClick={copyAll} style={{
+                padding: '7px 16px', borderRadius: '7px', border: 'none',
+                background: copiedAll ? '#10b981' : 'var(--primary)',
+                color: '#fff', cursor: 'pointer', fontSize: '13px', fontWeight: 600,
                 display: 'inline-flex', alignItems: 'center', gap: '5px',
-              }}
-            >
-              {updateState === 'running' ? (
-                <>
-                  <span style={{ display: 'inline-block', width: '11px', height: '11px', border: '2px solid var(--border)', borderTopColor: 'var(--primary)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-                  업데이트 중...
-                </>
-              ) : updateState === 'done' ? '✓ 업데이트 완료' : '↻ 전체 업데이트'}
-            </button>
-            {/* Format selector */}
-            <div style={{ display: 'flex', gap: '2px', padding: '3px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '7px' }}>
-              {(['markdown', 'plain', 'json'] as const).map(f => (
-                <button key={f} onClick={() => setFormat(f)} style={{
-                  padding: '3px 10px', borderRadius: '5px', border: 'none', cursor: 'pointer',
-                  fontSize: '11px', fontWeight: format === f ? 600 : 400,
-                  background: format === f ? 'var(--primary)' : 'transparent',
-                  color: format === f ? '#fff' : 'var(--text-muted)',
-                }}>{f}</button>
-              ))}
+              }}>
+                {copiedAll ? '✓ 복사됨' : '📋 전체 복사'}
+              </button>
             </div>
-            <button onClick={copyAll} style={{
-              padding: '7px 16px', borderRadius: '7px', border: 'none',
-              background: copiedAll ? '#10b981' : 'var(--primary)',
-              color: '#fff', cursor: 'pointer', fontSize: '13px', fontWeight: 600,
-              display: 'inline-flex', alignItems: 'center', gap: '5px',
-            }}>
-              {copiedAll ? '✓ 복사됨' : '📋 전체 복사'}
-            </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
-      {/* Restart banner */}
+      {/* Restart banner (recommended repo install) */}
       {restartNeeded && (
         <div style={{
           marginBottom: '16px', padding: '10px 14px', borderRadius: '8px',
@@ -734,6 +798,12 @@ export function SourcesPanel() {
                       padding: '2px 7px', borderRadius: '4px', fontSize: '10px', fontWeight: 600,
                       background: TYPE_COLOR[type], color: TYPE_TEXT[type], flexShrink: 0,
                     }}>{TYPE_LABEL[type]}</span>
+                    {s.manual && (
+                      <span style={{
+                        padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 600,
+                        background: 'rgba(107,114,128,0.12)', color: 'var(--text-muted)', flexShrink: 0,
+                      }}>수동</span>
+                    )}
                     <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', flexShrink: 0 }}>
                       {s.name}
                     </span>
@@ -766,6 +836,22 @@ export function SourcesPanel() {
                         transition: 'all 0.15s',
                       }}>
                         {isExpanded ? '▲ 접기' : '▼ 주요 기능'}
+                      </button>
+                    )}
+                    {hasGithub && (
+                      <button
+                        onClick={() => handleUpdate(s)}
+                        disabled={updatingUrl === s.url}
+                        title="git pull로 업데이트"
+                        style={{
+                          padding: '3px 9px', borderRadius: '5px', border: '1px solid var(--border)',
+                          background: 'none', cursor: updatingUrl === s.url ? 'default' : 'pointer',
+                          fontSize: '11px', flexShrink: 0,
+                          color: updatingUrl === s.url ? 'var(--text-muted)' : '#10b981',
+                          opacity: updatingUrl === s.url ? 0.5 : 1,
+                        }}
+                      >
+                        {updatingUrl === s.url ? '...' : '업데이트'}
                       </button>
                     )}
                     <button onClick={() => copyOne(s.url)} style={{
@@ -828,14 +914,14 @@ export function SourcesPanel() {
         )
       })}
 
-      {/* Manual add */}
+      {/* Install from GitHub */}
       <div style={{ marginTop: '8px' }}>
         <button onClick={() => setShowAddForm(v => !v)} style={{
           fontSize: '12px', color: 'var(--primary)', background: 'none',
           border: '1px dashed rgba(99,102,241,0.4)', borderRadius: '6px',
           padding: '5px 12px', cursor: 'pointer',
         }}>
-          {showAddForm ? '✕ 취소' : '+ 수동 추가'}
+          {showAddForm ? '✕ 취소' : '+ GitHub에서 설치'}
         </button>
         {showAddForm && (
           <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '6px', padding: '12px', borderRadius: '8px', background: 'var(--surface)', border: '1px solid var(--border)' }}>
@@ -843,14 +929,14 @@ export function SourcesPanel() {
               value={addUrl}
               onChange={e => { setAddUrl(e.target.value); setAddError(null) }}
               placeholder="https://github.com/owner/repo"
-              onKeyDown={e => e.key === 'Enter' && handleAddSource()}
+              onKeyDown={e => e.key === 'Enter' && !installing && handleInstallFromUrl()}
               style={{ padding: '7px 10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: '12px', fontFamily: 'monospace', outline: 'none' }}
             />
             <div style={{ display: 'flex', gap: '6px' }}>
               <input
                 value={addName}
                 onChange={e => setAddName(e.target.value)}
-                placeholder="이름 (선택)"
+                placeholder="이름 (선택 — URL에서 자동 추출)"
                 style={{ flex: 1, padding: '7px 10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: '12px', outline: 'none' }}
               />
               <select value={addType} onChange={e => setAddType(e.target.value as 'skill' | 'plugin' | 'marketplace')} style={{ padding: '7px 10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: '12px', cursor: 'pointer' }}>
@@ -858,7 +944,17 @@ export function SourcesPanel() {
                 <option value="plugin">플러그인</option>
                 <option value="marketplace">마켓플레이스</option>
               </select>
-              <button onClick={handleAddSource} style={{ padding: '7px 14px', borderRadius: '6px', border: 'none', background: 'var(--primary)', color: '#fff', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>추가</button>
+              <button onClick={handleInstallFromUrl} disabled={installing} style={{
+                padding: '7px 14px', borderRadius: '6px', border: 'none',
+                background: installing ? 'var(--text-muted)' : 'var(--primary)',
+                color: '#fff', fontSize: '12px', fontWeight: 600,
+                cursor: installing ? 'default' : 'pointer', minWidth: '60px',
+              }}>
+                {installing ? '설치 중...' : 'git clone'}
+              </button>
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+              git clone으로 실제 설치됩니다. 완료 후 Claude Code 재시작 필요.
             </div>
             {addError && <div style={{ fontSize: '11px', color: '#ef4444' }}>{addError}</div>}
           </div>
@@ -867,7 +963,7 @@ export function SourcesPanel() {
 
       {/* Preview of copy format */}
       {sources.length > 0 && (
-        <div style={{ marginTop: '8px' }}>
+        <div style={{ marginTop: '16px' }}>
           <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px' }}>
             복사 미리보기 ({format})
           </div>
