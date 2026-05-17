@@ -370,7 +370,7 @@ export function Dashboard() {
           </main>
         ) : mode === 'sources' ? (
           <main style={{ flex: 1, overflowY: 'auto' }}>
-            <SourcesPanel rebuildCount={rebuildCount} />
+            <SourcesPanel rebuildCount={rebuildCount} onRebuild={handleFullRefresh} />
           </main>
         ) : (
         <>
