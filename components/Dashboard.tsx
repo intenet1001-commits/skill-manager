@@ -51,29 +51,61 @@ export function Dashboard() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [copyAllDone, setCopyAllDone] = useState(false)
 
+  // Refresh state
+  const [refreshing, setRefreshing] = useState(false)
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null)
+  const [refreshDiff, setRefreshDiff] = useState<{ added: number; removed: number } | null>(null)
+
+  function relativeTime(d: Date): string {
+    const sec = Math.floor((Date.now() - d.getTime()) / 1000)
+    if (sec < 10) return '방금'
+    if (sec < 60) return `${sec}초 전`
+    const min = Math.floor(sec / 60)
+    if (min < 60) return `${min}분 전`
+    return `${Math.floor(min / 60)}시간 전`
+  }
+
+  // Cache-busted fetch of skills index
   function refreshIndex() {
-    fetch('/skills-index.json', { cache: 'no-store' })
+    fetch(`/skills-index.json?t=${Date.now()}`, { cache: 'no-store' })
       .then(r => r.json())
-      .then((data: SkillEntry[]) => setSkills(data))
+      .then((data: SkillEntry[]) => {
+        setSkills(data)
+        setLastRefreshed(new Date())
+      })
       .catch(() => {})
   }
 
+  async function handleFullRefresh() {
+    if (refreshing) return
+    setRefreshing(true)
+    setRefreshDiff(null)
+    try {
+      const res = await fetch('/api/build-index', { method: 'POST' })
+      const data = await res.json() as { ok: boolean; added: string[]; removed: string[] }
+      refreshIndex()
+      const added = data.added?.length ?? 0
+      const removed = data.removed?.length ?? 0
+      if (added > 0 || removed > 0) {
+        setRefreshDiff({ added, removed })
+        setTimeout(() => setRefreshDiff(null), 5000)
+      }
+    } catch { /* ignore */ } finally {
+      setRefreshing(false)
+    }
+  }
+
   useEffect(() => {
-    // 1. Trigger rebuild first so the file on disk is fresh, then load it
+    // Trigger rebuild on load so the file is fresh, then load it
     fetch('/api/build-index', { method: 'POST' })
-      .then(r => r.json())
-      .then(() => {
-        // Always re-fetch after rebuild (file is now current regardless of changed/unchanged)
-        refreshIndex()
-        setLoadingSkills(false)
-      })
+      .then(() => refreshIndex())
       .catch(() => {
-        // Rebuild failed — fall back to whatever is on disk
-        fetch('/skills-index.json', { cache: 'no-store' })
+        fetch(`/skills-index.json?t=${Date.now()}`, { cache: 'no-store' })
           .then(r => r.json())
-          .then((data: SkillEntry[]) => { setSkills(data); setLoadingSkills(false) })
-          .catch(() => setLoadingSkills(false))
+          .then((data: SkillEntry[]) => { setSkills(data); setLastRefreshed(new Date()) })
+          .catch(() => {})
       })
+      .finally(() => setLoadingSkills(false))
   }, [])
 
   const fuse = useMemo(() => new Fuse(skills, {
@@ -323,7 +355,7 @@ export function Dashboard() {
 
         {/* Row 2: StatsBar */}
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px', paddingTop: '6px', borderTop: '1px solid var(--border)' }}>
-          <StatsBar all={skills} filtered={filtered} onRefresh={refreshIndex} />
+          <StatsBar all={skills} filtered={filtered} onRefresh={refreshIndex} onRebuild={handleFullRefresh} rebuilding={refreshing} />
         </div>
       </header>
 
@@ -362,6 +394,33 @@ export function Dashboard() {
                 }}>{label}</button>
             ))}
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              {/* Refresh button */}
+              <button
+                onClick={handleFullRefresh}
+                disabled={refreshing}
+                title="플러그인 인덱스 재빌드 (삭제된 스킬 제거 포함)"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '5px',
+                  padding: '3px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 500,
+                  border: '1px solid var(--border)',
+                  background: refreshDiff ? 'rgba(16,185,129,0.1)' : 'transparent',
+                  color: refreshDiff
+                    ? '#10b981'
+                    : refreshing ? 'var(--text-dim)' : 'var(--text-muted)',
+                  cursor: refreshing ? 'default' : 'pointer',
+                  transition: 'all 0.15s',
+                }}
+              >
+                <span style={{
+                  display: 'inline-block',
+                  animation: refreshing ? 'spin 0.8s linear infinite' : 'none',
+                }}>↺</span>
+                {refreshDiff
+                  ? `${refreshDiff.added > 0 ? `+${refreshDiff.added}` : ''}${refreshDiff.removed > 0 ? ` −${refreshDiff.removed}` : ''}`
+                  : refreshing ? '재빌드 중…'
+                  : lastRefreshed ? relativeTime(lastRefreshed)
+                  : '새로고침'}
+              </button>
               {/* Selection mode toggle */}
               <button
                 onClick={toggleSelectionMode}
