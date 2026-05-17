@@ -55,6 +55,7 @@ export function Dashboard() {
   const [refreshing, setRefreshing] = useState(false)
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null)
   const [refreshDiff, setRefreshDiff] = useState<{ added: number; removed: number } | null>(null)
+  const [rebuildCount, setRebuildCount] = useState(0)
 
   function relativeTime(d: Date): string {
     const sec = Math.floor((Date.now() - d.getTime()) / 1000)
@@ -84,6 +85,7 @@ export function Dashboard() {
       const res = await fetch('/api/build-index', { method: 'POST' })
       const data = await res.json() as { ok: boolean; added: string[]; removed: string[] }
       refreshIndex()
+      setRebuildCount(c => c + 1)
       const added = data.added?.length ?? 0
       const removed = data.removed?.length ?? 0
       if (added > 0 || removed > 0) {
@@ -368,7 +370,7 @@ export function Dashboard() {
           </main>
         ) : mode === 'sources' ? (
           <main style={{ flex: 1, overflowY: 'auto' }}>
-            <SourcesPanel />
+            <SourcesPanel rebuildCount={rebuildCount} />
           </main>
         ) : (
         <>
