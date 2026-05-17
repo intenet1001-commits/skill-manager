@@ -257,7 +257,7 @@ function GitHubSourcesModal({ sources, allSkills, onClose }: {
   )
 }
 
-export function SourcesPanel({ rebuildCount = 0 }: { rebuildCount?: number }) {
+export function SourcesPanel({ rebuildCount = 0, onRebuild }: { rebuildCount?: number; onRebuild?: () => void }) {
   const [sources, setSources] = useState<PluginSource[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -469,6 +469,8 @@ export function SourcesPanel({ rebuildCount = 0 }: { rebuildCount?: number }) {
     setUpdateState('done')
     setShowUpdateResults(true)
     setRestartNeeded(true)
+    // Rebuild skill index so descriptions/counts reflect latest pulled content
+    onRebuild?.()
   }
 
   const recommendedUrls = new Set(RECOMMENDED_REPOS.map(r => normalizeUrl(r.url)))
@@ -651,12 +653,16 @@ export function SourcesPanel({ rebuildCount = 0 }: { rebuildCount?: number }) {
                     <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', flexShrink: 0 }}>
                       {repo.name}
                     </span>
-                    {repo.skillCount && (
+                    {(repoSkills.filter(s => s.userInvocable).length > 0 || repo.skillCount) && (
                       <span style={{
                         fontSize: '11px', color: '#10b981',
                         background: 'rgba(16,185,129,0.1)',
                         padding: '1px 7px', borderRadius: '99px', fontWeight: 600, flexShrink: 0,
-                      }}>{repo.skillCount}개 스킬</span>
+                      }}>
+                        {repoSkills.filter(s => s.userInvocable).length > 0
+                          ? `${repoSkills.filter(s => s.userInvocable).length}개 스킬`
+                          : `${repo.skillCount}개 스킬`}
+                      </span>
                     )}
                     <span style={{ fontSize: '12px', color: 'var(--text-muted)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {repo.description}
