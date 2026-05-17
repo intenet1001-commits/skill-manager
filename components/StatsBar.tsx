@@ -8,9 +8,11 @@ interface Props {
   all: SkillEntry[]
   filtered: SkillEntry[]
   onRefresh?: () => void
+  onRebuild?: () => void
+  rebuilding?: boolean
 }
 
-export function StatsBar({ all, filtered, onRefresh }: Props) {
+export function StatsBar({ all, filtered, onRefresh, onRebuild, rebuilding }: Props) {
   const plugins = useMemo(() =>
     new Set(all.filter(s => s.source === 'plugin').map(s => s.pluginName)).size,
     [all]
@@ -56,9 +58,8 @@ export function StatsBar({ all, filtered, onRefresh }: Props) {
         unchanged: data.unchanged,
       })
       setTimeout(() => setRefreshResult(null), 12000)
-      if (!data.unchanged) {
-        onRefresh?.()
-      }
+      // Always reload the UI after rebuild — even if "unchanged" the file was rewritten
+      onRefresh?.()
     } catch {
       setRefreshResult(null)
     } finally {
@@ -70,16 +71,16 @@ export function StatsBar({ all, filtered, onRefresh }: Props) {
     <div className="flex items-center gap-6 text-sm" style={{ color: 'var(--text-muted)', flexWrap: 'wrap' }}>
       <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
         <button
-          onClick={handleRefresh}
-          disabled={refreshing}
+          onClick={onRebuild ?? handleRefresh}
+          disabled={onRebuild ? rebuilding : refreshing}
           title="스킬 인덱스 새로고침 (추가/삭제된 스킬 감지)"
           style={{
             padding: '2px 7px', borderRadius: '5px', border: '1px solid var(--border)',
-            background: 'var(--surface-2)', color: refreshing ? 'var(--text-dim)' : 'var(--text-muted)',
-            fontSize: '11px', cursor: refreshing ? 'wait' : 'pointer',
+            background: 'var(--surface-2)', color: (onRebuild ? rebuilding : refreshing) ? 'var(--text-dim)' : 'var(--text-muted)',
+            fontSize: '11px', cursor: (onRebuild ? rebuilding : refreshing) ? 'wait' : 'pointer',
           }}
         >
-          {refreshing ? '↺ 스캔 중…' : '↺'}
+          {(onRebuild ? rebuilding : refreshing) ? '↺ 스캔 중…' : '↺'}
         </button>
 
         {refreshResult && (
