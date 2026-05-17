@@ -257,7 +257,7 @@ function GitHubSourcesModal({ sources, allSkills, onClose }: {
   )
 }
 
-export function SourcesPanel() {
+export function SourcesPanel({ rebuildCount = 0 }: { rebuildCount?: number }) {
   const [sources, setSources] = useState<PluginSource[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -302,6 +302,12 @@ export function SourcesPanel() {
       .then(setAllSkills)
       .catch(() => {})
   }, [fetchSources])
+
+  // Re-fetch when Dashboard triggers a rebuild (rebuildCount increments)
+  useEffect(() => {
+    if (rebuildCount === 0) return
+    fetchSources()
+  }, [rebuildCount, fetchSources])
 
   async function handleRefresh() {
     setRefreshing(true)
