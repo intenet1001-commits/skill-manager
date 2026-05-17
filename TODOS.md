@@ -1,71 +1,56 @@
 # TODOS — Skill Manager
 
-## P1 — Investigate Claude CLI cold-start latency
+## ✅ DONE — Claude CLI cold-start latency (2026-05-17)
 
-**What:** Reduce 5-15s spawn latency on `/api/recommend` requests.
-
-**Why:** Each request spawns a fresh `claude` CLI process via `spawn()` in `app/api/recommend/route.ts:165`. Cold start dominates user-perceived latency. The 35-second timeout fallback to keyword search exists because Claude often doesn't finish in time. The textarea + drag-and-drop input improvements (CEO plan 2026-04-06-textarea-dragdrop.md) make the input richer, but the bottleneck is the output side. Identified by adversarial cross-model review during 2026-04-06 CEO plan session.
-
-**How:** Investigate one of:
-1. Warm process pool (2-3 idle processes ready)
-2. Claude SDK persistent connection (replaces CLI spawn)
-3. Pre-warm one process on dashboard load
-4. Use `@anthropic-ai/sdk` directly instead of CLI
-
-**Effort:** M (human: ~4h / CC: ~30min)
-
-**Pros:** Could drop p50 latency from ~10s to <2s. Removes need for fallback in most cases.
-
-**Cons:** Process pool adds lifecycle complexity. SDK migration changes auth model.
-
-**Blocked by:** Nothing.
+Anthropic SDK fast-path (`anthropic.messages.stream`) implemented in `app/api/recommend/route.ts:168-207`.
+Falls back to CLI spawn only when no API key available. p50 latency from ~10s → <2s on SDK path.
 
 ---
 
-## P2 — Auto-refresh index
+## ✅ DONE — Auto-refresh index (2026-05-17)
 
-**What:** Watch `~/.claude/plugins/` for changes and rebuild `skills-index.json` automatically.
-
-**Why:** Currently requires `npm run build-index` after every plugin install. With auto-refresh, installing a new plugin immediately appears in the dashboard.
-
-**How:** Add `chokidar` watcher in a Next.js API route or a separate `scripts/watch.mjs` process. Debounce rebuilds to 2s. Show "Refreshed Xs ago" in StatsBar.
-
-**Effort:** S (human: ~30min / CC: ~5min)
-
-**Pros:** Zero manual steps after plugin changes.
-
-**Cons:** Adds `chokidar` dependency + always-running watcher process.
-
-**Blocked by:** Nothing. Can ship anytime.
+`scripts/watch.mjs` created. Watches `~/.claude/plugins/`, `~/.claude/skills/`, polls `~/.claude/settings.json`.
+2s debounce. No chokidar dependency (native `fs.watch` recursive on macOS).
+Run with `npm run watch` alongside `npm run dev`.
 
 ---
 
-## P2 — AI natural language query
+## ✅ DONE — npm link CLI (2026-05-17)
 
-**What:** Type "I need to write tests for my API" → get ranked skill suggestions with explanations. Uses the Anthropic API for semantic ranking.
-
-**Why:** Closes the intent→skill gap. Right now you need to know roughly what you're looking for. NLP query works when you don't.
-
-**How:** Add `/api/ask` endpoint. Two options:
-- **Simple:** Use Claude API to classify the query against skill descriptions (no embeddings needed, just a prompt).
-- **Better:** Pre-compute embeddings for all skill descriptions, store in `public/embeddings.json`, cosine-similarity at query time.
-
-**Effort:** M (human: ~2hr / CC: ~15min)
-
-**Pros:** The platonic ideal. Intent → skill, no searching required.
-
-**Cons:** Requires `ANTHROPIC_API_KEY` env var. Embeddings file adds ~5MB to public dir.
-
-**Note:** Claude Code OAuth login (if available) could provide the API key automatically — no separate env var setup needed. See user question 2026-04-05.
-
-**Blocked by:** Nothing technical. Decision: use Claude API key vs Claude Code OAuth token.
+`skill-manager` binary at `/opt/homebrew/bin/skill-manager`. Already linked.
 
 ---
 
-## P3 — Keyboard shortcuts for CLI
+## P1 — AI natural language query
 
-**What:** `skill-manager` global CLI command available from any terminal via `npm link`.
+**What:** Type "테스트 자동화가 필요해" → ranked skill suggestions. `/api/ask` endpoint.
 
-**Status:** CLI is in Phase 1 scope — this TODO is just the `npm link` installation step for making it globally available without `node scripts/cli.mjs`.
+**Why:** Closes the intent→skill gap. Current search requires knowing roughly what to look for.
 
-**Effort:** XS (~5min)
+**How:** Reuse `/api/recommend/route.ts` SDK fast-path block. Strip projectContext, simplify prompt to "natural language → skill". Add to `AIPanel.tsx` as a second input mode.
+
+**Effort:** M (CC: ~20min)
+
+**Pros:** Zero new dependencies. SDK fast-path already wired.
+
+**Blocked by:** Nothing. `ANTHROPIC_API_KEY` auto-resolved from `~/.claude/settings.json`.
+
+---
+
+## P2 — Integrate watch + dev (concurrently)
+
+**What:** `npm run dev` starts both Next.js and watch script simultaneously.
+
+**How:** Add `concurrently` devDep. Replace `dev` script with `concurrently "next dev -p 9025" "node scripts/watch.mjs"`.
+
+**Effort:** XS (~10min)
+
+---
+
+## P2 — Validate recommended-repos.ts URLs
+
+**What:** Some URLs (openai/codex-plugin-cc, googleworkspace/cli, team-attention/plugins-for-claude-natives) may not exist.
+
+**How:** `curl -s -o /dev/null -w "%{http_code}"` each URL. Remove 404s or add `unverified` flag.
+
+**Effort:** S (~30min)

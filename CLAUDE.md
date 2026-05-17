@@ -9,6 +9,7 @@ Next.js 15 app with Fuse.js fuzzy search, multi-filter, and CLI.
 - macOS launcher: `./실행.command`
 - Global CLI: `npm link` once, then `skill-manager search/list/info/plugins`
 - Index build: `npm run build-index` (auto-runs via predev/prebuild hook)
+- File watcher: `npm run watch` — watches `~/.claude/plugins/`, `~/.claude/skills/`, polls `~/.claude/settings.json`; auto-rebuilds index with 2s debounce on `.md`/`.json` changes
 
 ## Index Builder (build-index.mjs)
 
