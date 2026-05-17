@@ -93,15 +93,6 @@ export const RECOMMENDED_REPOS: RecommendedRepo[] = [
     type: 'marketplace',
     tags: ['team', 'collaboration'],
   },
-  {
-    id: 'agents-to-z',
-    name: 'AgentsToZ_byCS',
-    description: 'AgentsToZ by CS — agents & skills collection',
-    url: 'https://github.com/intenet1001-commits/AgentsToZ_byCS',
-    type: 'marketplace',
-    tags: ['agents', 'cs'],
-    featured: true,
-  },
   // Skills
   {
     id: 'claude-code-skills',
