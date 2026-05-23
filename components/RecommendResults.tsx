@@ -69,28 +69,28 @@ export function RecommendResults({
             />
             전체 선택
           </label>
+          {/* Terminal type picker — always visible when results exist */}
+          <div style={{ display: 'inline-flex', gap: '2px', alignItems: 'center' }}>
+            {TERMINAL_OPTIONS.map(opt => (
+              <button
+                key={opt.key}
+                onClick={() => onTerminalTypeChange(opt.key)}
+                title={opt.title}
+                style={{
+                  padding: '3px 7px', borderRadius: '5px', fontSize: '10px', fontWeight: 600,
+                  border: `1px solid ${terminalType === opt.key ? 'var(--primary)' : 'var(--border)'}`,
+                  background: terminalType === opt.key ? 'var(--primary)' : 'none',
+                  color: terminalType === opt.key ? '#fff' : 'var(--text-muted)',
+                  cursor: 'pointer', transition: 'all 0.12s',
+                }}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
           {selectedSkills.size > 0 && (
             <>
-              {/* Terminal type picker */}
-              <div style={{ display: 'inline-flex', gap: '2px', alignItems: 'center' }}>
-                {TERMINAL_OPTIONS.map(opt => (
-                  <button
-                    key={opt.key}
-                    onClick={() => onTerminalTypeChange(opt.key)}
-                    title={opt.title}
-                    style={{
-                      padding: '3px 7px', borderRadius: '5px', fontSize: '10px', fontWeight: 600,
-                      border: `1px solid ${terminalType === opt.key ? 'var(--primary)' : 'var(--border)'}`,
-                      background: terminalType === opt.key ? 'var(--primary)' : 'none',
-                      color: terminalType === opt.key ? '#fff' : 'var(--text-muted)',
-                      cursor: 'pointer', transition: 'all 0.12s',
-                    }}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-
               {selectedSkills.size === 1 ? (
                 <label style={{
                   display: 'inline-flex', alignItems: 'center', gap: '4px',
