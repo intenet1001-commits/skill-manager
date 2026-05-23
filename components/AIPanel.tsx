@@ -36,8 +36,10 @@ export function AIPanel() {
   const [copied, setCopied] = useState<string | null>(null)
   const [selectedSkills, setSelectedSkills] = useState<Set<string>>(new Set()) // "projectPath:index"
   const [runStatus, setRunStatus] = useState<string | null>(null)
-  const [skipPerms, setSkipPerms] = useState(false)
-  const [terminalType, setTerminalType] = useState<'iterm' | 'terminal' | 'tmux' | 'cmux' | 'bg'>('cmux')
+  const [skipPerms, setSkipPerms] = useState(() => localStorage.getItem('skill-manager-skipPerms') !== 'false')
+  const [terminalType, setTerminalType] = useState<'iterm' | 'terminal' | 'tmux' | 'cmux' | 'bg'>(
+    () => (localStorage.getItem('skill-manager-terminalType') as 'iterm' | 'terminal' | 'tmux' | 'cmux' | 'bg') || 'cmux'
+  )
   const [installedPluginNames, setInstalledPluginNames] = useState<Set<string>>(new Set())
   const [isDragOver, setIsDragOver] = useState(false)
   const [droppedFiles, setDroppedFiles] = useState<Array<{ name: string; charCount: number }>>([])
@@ -665,8 +667,8 @@ export function AIPanel() {
         onToggleSkill={toggleSkill}
         onToggleAll={toggleAll}
         onRunSelected={runSelected}
-        onSkipPermsChange={setSkipPerms}
-        onTerminalTypeChange={setTerminalType}
+        onSkipPermsChange={v => { setSkipPerms(v); localStorage.setItem('skill-manager-skipPerms', String(v)) }}
+        onTerminalTypeChange={t => { setTerminalType(t); localStorage.setItem('skill-manager-terminalType', t) }}
         onCopyCmd={copyCmd}
         installedPluginNames={installedPluginNames}
       />
