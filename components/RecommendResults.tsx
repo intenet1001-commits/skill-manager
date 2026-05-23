@@ -69,28 +69,46 @@ export function RecommendResults({
             />
             전체 선택
           </label>
+          {/* Terminal type picker — always visible when results exist */}
+          <div style={{ display: 'inline-flex', gap: '2px', alignItems: 'center' }}>
+            {TERMINAL_OPTIONS.map(opt => (
+              <button
+                key={opt.key}
+                onClick={() => onTerminalTypeChange(opt.key)}
+                title={opt.title}
+                style={{
+                  padding: '3px 7px', borderRadius: '5px', fontSize: '10px', fontWeight: 600,
+                  border: `1px solid ${terminalType === opt.key ? 'var(--primary)' : 'var(--border)'}`,
+                  background: terminalType === opt.key ? 'var(--primary)' : 'none',
+                  color: terminalType === opt.key ? '#fff' : 'var(--text-muted)',
+                  cursor: 'pointer', transition: 'all 0.12s',
+                }}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          {selectedSkills.size > 1 && !installedPluginNames?.has('csncompany_2-0') && (
+            <a
+              href="https://github.com/intenet1001-commits/CSnCompany_2-0"
+              target="_blank" rel="noreferrer"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: '4px',
+                fontSize: '11px', color: '#f59e0b',
+                padding: '3px 8px', borderRadius: '5px',
+                border: '1px solid rgba(245,158,11,0.4)',
+                background: 'rgba(245,158,11,0.06)',
+                textDecoration: 'none',
+              }}
+              title="팀 리드(cs-ceo)는 CSnCompany_2-0 플러그인이 필요합니다. 클릭해서 설치 방법 확인"
+            >
+              ⚠️ 팀 실행엔 CSnCompany_2-0 필요
+            </a>
+          )}
+
           {selectedSkills.size > 0 && (
             <>
-              {/* Terminal type picker */}
-              <div style={{ display: 'inline-flex', gap: '2px', alignItems: 'center' }}>
-                {TERMINAL_OPTIONS.map(opt => (
-                  <button
-                    key={opt.key}
-                    onClick={() => onTerminalTypeChange(opt.key)}
-                    title={opt.title}
-                    style={{
-                      padding: '3px 7px', borderRadius: '5px', fontSize: '10px', fontWeight: 600,
-                      border: `1px solid ${terminalType === opt.key ? 'var(--primary)' : 'var(--border)'}`,
-                      background: terminalType === opt.key ? 'var(--primary)' : 'none',
-                      color: terminalType === opt.key ? '#fff' : 'var(--text-muted)',
-                      cursor: 'pointer', transition: 'all 0.12s',
-                    }}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-
               {selectedSkills.size === 1 ? (
                 <label style={{
                   display: 'inline-flex', alignItems: 'center', gap: '4px',
