@@ -37,7 +37,7 @@ export function AIPanel() {
   const [selectedSkills, setSelectedSkills] = useState<Set<string>>(new Set()) // "projectPath:index"
   const [runStatus, setRunStatus] = useState<string | null>(null)
   const [skipPerms, setSkipPerms] = useState(false)
-  const [terminalType, setTerminalType] = useState<'iterm' | 'terminal' | 'tmux' | 'cmux' | 'bg'>('iterm')
+  const [terminalType, setTerminalType] = useState<'iterm' | 'terminal' | 'tmux' | 'cmux' | 'bg'>('cmux')
   const [installedPluginNames, setInstalledPluginNames] = useState<Set<string>>(new Set())
   const [isDragOver, setIsDragOver] = useState(false)
   const [droppedFiles, setDroppedFiles] = useState<Array<{ name: string; charCount: number }>>([])

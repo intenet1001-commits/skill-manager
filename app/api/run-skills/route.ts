@@ -91,16 +91,8 @@ async function openTerminalByType(shellLine: string, type: TerminalType, cwd?: s
         execFile(cli, args, { env: { ...process.env, PATH: ENVPATH } }, () => resolve())
       })
     }
-    case 'bg': {
-      return new Promise<void>(resolve => {
-        const child = spawn('sh', ['-c', shellLine], {
-          detached: true, stdio: 'ignore',
-          env: { ...process.env, PATH: ENVPATH },
-        })
-        child.unref()
-        resolve()
-      })
-    }
+    // 'bg' is handled before buildling shellLine in runSingleSkill / runTeamWithCsCeoLead
+    // so it should never reach here; fall through to iterm as safety net
     case 'iterm':
     default:
       return openTerminalIterm(shellLine)
@@ -113,9 +105,22 @@ async function runSingleSkill(
   projectPath: string | undefined,
   skipPerms: boolean,
   sources?: string[],
-  terminalType: TerminalType = 'iterm'
+  terminalType: TerminalType = 'cmux'
 ): Promise<void> {
   const hasLocalSource = Array.isArray(sources) && sources.includes('local')
+  const cwd = projectPath || homedir()
+
+  if (terminalType === 'bg') {
+    // claude --bg '<task>' spawns a background agent and exits immediately — no terminal window
+    const args = [
+      ...(skipPerms ? ['--dangerously-skip-permissions'] : []),
+      '--bg', cmd,
+    ]
+    return new Promise<void>(resolve => {
+      execFile('claude', args, { cwd, env: { ...process.env, PATH: ENVPATH } }, () => resolve())
+    })
+  }
+
   const cdPart = projectPath ? `cd '${esc(projectPath)}' && ` : ''
   const addDir = projectPath ? `--add-dir '${esc(projectPath)}' ` : ''
   const localAddDir = hasLocalSource ? `--add-dir '${esc(homedir() + '/cs_plugins')}' ` : ''
@@ -144,6 +149,18 @@ async function runTeamWithCsCeoLead(
   const skillList = cmds.map((c, i) => `${i + 1}. ${c}`).join('\n')
   const goalText = (goal || '각 스킬 최적 실행').slice(0, 300)
   const prompt = `목표: ${goalText}\n\n아래 스킬들을 팀으로 병렬 실행해줘 (각 스킬을 Agent로 dispatch):\n${skillList}\n\n/cs-partnership:cs-ceo`
+
+  if (terminalType === 'bg') {
+    const args = [
+      '--dangerously-skip-permissions',
+      ...(projectPath ? ['--add-dir', projectPath] : []),
+      ...(hasLocalSource ? ['--add-dir', homedir() + '/cs_plugins'] : []),
+      '--bg', prompt,
+    ]
+    return new Promise<{ ok: boolean }>(resolve => {
+      execFile('claude', args, { cwd, env: { ...process.env, PATH: ENVPATH } }, () => resolve({ ok: true }))
+    })
+  }
 
   const shellLine = `cd '${esc(cwd)}' && claude --dangerously-skip-permissions ${addDir}${localAddDir}'${esc(prompt)}'`
   await openTerminalByType(shellLine, terminalType, cwd)
