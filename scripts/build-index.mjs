@@ -165,16 +165,51 @@ function main() {
   // When a marketplace directory exists, it is the authoritative list of available
   // plugins for that marketplace. Cache entries NOT listed in the marketplace
   // (e.g. old v1 when marketplace only has v2/v3) are excluded.
-  const marketplaceDefinedPlugins = new Set()  // "pluginName@marketplaceName"
-  const managedMarketplaces = new Set()         // marketplaces with a local definition dir
+  //
+  // KEY SUBTLETY: marketplace plugin folders often have version suffixes
+  // (e.g. "cs-ceo-v13") while the cache uses canonical names ("cs-ceo").
+  // Multiple plugins can also share the same folder
+  // (e.g. cs-ceo + goal + cs-partnership all map to "cs-ceo-v13").
+  // We read marketplace.json directly to get ALL canonical names so the
+  // source-of-truth check compares apples to apples, even in multi-plugin-per-folder cases.
+  const marketplaceDefinedPlugins = new Set()   // "canonicalName@marketplaceName"
+  const managedMarketplaces = new Set()          // marketplaces with a local definition dir
+  const marketplaceFolderToCanonical = new Map() // "folderName@mktName" -> first canonical name (for Section 4)
   const MARKETPLACES_ROOT = join(HOME, '.claude/plugins/marketplaces')
   if (existsSync(MARKETPLACES_ROOT)) {
     for (const mktPluginsDir of globSync(join(MARKETPLACES_ROOT, '*/plugins/'), { nodir: false })) {
       const mktName = mktPluginsDir.slice(MARKETPLACES_ROOT.length + 1).split('/')[0]
       managedMarketplaces.add(mktName)
+
+      // Read marketplace.json and add ALL canonical plugin names directly.
+      // This correctly handles: version-suffixed folders AND multi-plugin-per-folder cases.
+      const mktJsonPath = join(MARKETPLACES_ROOT, mktName, '.claude-plugin', 'marketplace.json')
+      if (existsSync(mktJsonPath)) {
+        try {
+          const mktDef = JSON.parse(readFileSync(mktJsonPath, 'utf-8'))
+          for (const p of mktDef.plugins || []) {
+            if (!p.name) continue
+            marketplaceDefinedPlugins.add(`${p.name}@${mktName}`)
+            // Build folder→first-canonical map for Section 4 (first write wins per folder)
+            const folderName = p.source?.replace(/^\.\/plugins\//, '')
+            if (folderName) {
+              const mapKey = `${folderName}@${mktName}`
+              if (!marketplaceFolderToCanonical.has(mapKey)) {
+                marketplaceFolderToCanonical.set(mapKey, p.name)
+              }
+            }
+          }
+        } catch { /* ignore malformed marketplace.json */ }
+      }
+
+      // Fallback: include any folder not covered by marketplace.json using its folder name
       for (const pd of globSync(join(mktPluginsDir, '*/'), { nodir: false })) {
-        const pName = pd.replace(/\/$/, '').split('/').at(-1)
-        marketplaceDefinedPlugins.add(`${pName}@${mktName}`)
+        const folderName = pd.replace(/\/$/, '').split('/').at(-1)
+        const mapKey = `${folderName}@${mktName}`
+        if (!marketplaceFolderToCanonical.has(mapKey)) {
+          marketplaceDefinedPlugins.add(`${folderName}@${mktName}`)
+          marketplaceFolderToCanonical.set(mapKey, folderName)
+        }
       }
     }
   }
@@ -383,11 +418,15 @@ function main() {
       try {
         const rel = skillPath.slice(MARKETPLACES_DIR.length + 1)
         const parts = rel.split('/')
-        // parts: [marketplaceName, 'plugins', pluginName, 'skills', skillName, 'SKILL.md']
+        // parts: [marketplaceName, 'plugins', pluginFolderName, 'skills', skillName, 'SKILL.md']
         const marketplaceName = parts[0]
-        const pluginName = parts[2]
+        const pluginFolderName = parts[2]  // may be versioned, e.g. "cs-ceo-v13"
         const skillName = parts[4]
-        if (!pluginName || !skillName) continue
+        if (!pluginFolderName || !skillName) continue
+
+        // Resolve canonical plugin name (strips version suffix via marketplace.json mapping).
+        // Falls back to folder name if no mapping found (e.g. no version suffix).
+        const pluginName = marketplaceFolderToCanonical.get(`${pluginFolderName}@${marketplaceName}`) || pluginFolderName
 
         // Only show marketplace plugins that are actually installed in cache
         if (!cachedPluginKeys.has(`${pluginName}@${marketplaceName}`)) continue
