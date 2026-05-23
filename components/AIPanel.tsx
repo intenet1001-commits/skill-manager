@@ -37,6 +37,7 @@ export function AIPanel() {
   const [selectedSkills, setSelectedSkills] = useState<Set<string>>(new Set()) // "projectPath:index"
   const [runStatus, setRunStatus] = useState<string | null>(null)
   const [skipPerms, setSkipPerms] = useState(false)
+  const [terminalType, setTerminalType] = useState<'iterm' | 'terminal' | 'tmux' | 'cmux' | 'bg'>('iterm')
   const [installedPluginNames, setInstalledPluginNames] = useState<Set<string>>(new Set())
   const [isDragOver, setIsDragOver] = useState(false)
   const [droppedFiles, setDroppedFiles] = useState<Array<{ name: string; charCount: number }>>([])
@@ -173,6 +174,7 @@ export function AIPanel() {
             projectPath: pathKey === '__default__' ? undefined : pathKey,
             skipPerms,
             goal: goal.trim() || undefined,
+            terminalType,
           }),
         }).then(r => r.json())
       ))
@@ -655,6 +657,7 @@ export function AIPanel() {
         selectedSkills={selectedSkills}
         anyLoading={anyLoading}
         skipPerms={skipPerms}
+        terminalType={terminalType}
         copied={copied}
         runStatus={runStatus}
         totalRecs={totalRecs}
@@ -663,6 +666,7 @@ export function AIPanel() {
         onToggleAll={toggleAll}
         onRunSelected={runSelected}
         onSkipPermsChange={setSkipPerms}
+        onTerminalTypeChange={setTerminalType}
         onCopyCmd={copyCmd}
         installedPluginNames={installedPluginNames}
       />

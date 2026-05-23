@@ -1,103 +1,23 @@
-import { exec, spawn } from 'child_process'
-import { homedir, tmpdir } from 'os'
-import { join } from 'path'
-import { existsSync, writeFileSync, readdirSync } from 'fs'
-import { checkOrigin, ORIGIN_FORBIDDEN } from '@/lib/check-origin'
+import { exec, spawn, execFile } from 'child_process'
+import { homedir } from 'os'
+import { existsSync } from 'fs'
 import { sanitizeCmd as libSanitizeCmd, sanitizePath } from '@/lib/sanitize'
+import { checkOrigin, ORIGIN_FORBIDDEN } from '@/lib/check-origin'
 
-/**
- * Post-launch tmux setup:
- * 1. Label every pane (LEAD / Worker-N) with visible titles on pane borders
- * 2. Focus the LEAD pane so the cursor lands there when user opens the session
- * 3. Kick every pane with Enter to work around runtime-cli's lost-Enter race
- *
- * Safe to run even if Enter already registered — harmless blank line.
- * Runs detached so the API route returns immediately.
- */
-function setupTmuxSessionDetached(teamName: string, workerCount: number): void {
-  // Build worker label list: worker-1, worker-2, ...
-  const workerLabels = Array.from({ length: workerCount }, (_, i) => `Worker-${i + 1}`)
+export type TerminalType = 'iterm' | 'terminal' | 'tmux' | 'cmux' | 'bg'
 
-  const script = `
-    session="${teamName}"
-    # Wait for the session to exist (tmux may take a moment)
-    for i in 1 2 3 4 5 6 7 8 9 10; do
-      tmux has-session -t "$session" 2>/dev/null && break
-      sleep 0.5
-    done
-    tmux has-session -t "$session" 2>/dev/null || exit 0
+const ENVPATH = '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:' + (process.env.PATH || '')
 
-    # Enable pane border titles at session level
-    tmux set-option -t "$session" pane-border-status top 2>/dev/null
-    tmux set-option -t "$session" pane-border-format ' #{pane_title} ' 2>/dev/null
-    # Highlight the active pane border
-    tmux set-option -t "$session" pane-active-border-style 'fg=colour39,bold' 2>/dev/null
-    tmux set-option -t "$session" pane-border-style 'fg=colour240' 2>/dev/null
-
-    # Wait for runtime-cli to create all panes
-    sleep 4
-
-    # Label panes: index 0 = LEAD, 1..N = workers
-    # Use list-panes with index ordering
-    worker_labels="${workerLabels.join('|')}"
-    tmux list-panes -s -t "$session" -F '#{pane_index} #{pane_id}' 2>/dev/null | sort -n | while read idx pid; do
-      if [ "$idx" = "0" ]; then
-        tmux select-pane -t "$pid" -T '🧭 LEAD (talk here for follow-up tasks)' 2>/dev/null
-      else
-        worker_num=$idx
-        label=$(echo "$worker_labels" | cut -d'|' -f"$worker_num")
-        [ -z "$label" ] && label="Worker-$worker_num"
-        tmux select-pane -t "$pid" -T "🤖 $label" 2>/dev/null
-      fi
-    done
-
-    # Kick Enter on LEAD pane only (pane index 0 = runtime-cli).
-    # Do NOT send Enter to worker panes — claude startup prompts default to
-    # "> 1. No, exit" so Enter would kill the worker and cause a restart loop.
-    lead_id=$(tmux list-panes -s -t "$session" -F '#{pane_index} #{pane_id}' 2>/dev/null | sort -n | head -1 | awk '{print $2}')
-    if [ -n "$lead_id" ]; then
-      sleep 2
-      for _ in 1 2 3; do
-        tmux send-keys -t "$lead_id" Enter 2>/dev/null
-        sleep 2
-      done
-    fi
-
-    # Finally, focus the LEAD pane (index 0) so the user lands on it
-    lead_pid=$(tmux list-panes -s -t "$session" -F '#{pane_index} #{pane_id}' 2>/dev/null | sort -n | head -1 | awk '{print $2}')
-    [ -n "$lead_pid" ] && tmux select-pane -t "$lead_pid" 2>/dev/null
-  `.trim()
-
-  try {
-    const child = spawn('sh', ['-c', script], {
-      detached: true,
-      stdio: 'ignore',
-      env: { ...process.env, PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:' + (process.env.PATH || '') },
-    })
-    child.unref()
-  } catch (e) {
-    console.warn('[run-skills] tmux setup failed to spawn:', e)
-  }
+function resolveCmuxCli(): string | null {
+  const h = homedir()
+  const candidates = [
+    '/Applications/cmux.app/Contents/Resources/bin/cmux',
+    `${h}/Applications/cmux.app/Contents/Resources/bin/cmux`,
+    '/opt/homebrew/bin/cmux',
+    '/usr/local/bin/cmux',
+  ]
+  return candidates.find(p => existsSync(p)) ?? null
 }
-
-/** Find the latest installed omc runtime-cli, avoiding hardcoded version. */
-function findRuntimeCli(): string {
-  const base = join(homedir(), '.claude/plugins/cache/omc/oh-my-claudecode')
-  try {
-    const versions = readdirSync(base, { withFileTypes: true })
-      .filter(d => d.isDirectory())
-      .map(d => d.name)
-      .sort()
-      .reverse()
-    for (const ver of versions) {
-      const candidate = join(base, ver, 'bridge/runtime-cli.cjs')
-      if (existsSync(candidate)) return candidate
-    }
-  } catch { /* base dir missing */ }
-  return join(base, '4.4.4/bridge/runtime-cli.cjs')
-}
-
-const RUNTIME_CLI = findRuntimeCli()
 
 const sanitizeCmd = libSanitizeCmd
 
@@ -109,23 +29,8 @@ function escOsa(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\r?\n/g, ' ')
 }
 
-function makeTeamName(goal: string): string {
-  const base = goal
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, '')
-    .trim()
-    .split(/\s+/)
-    .slice(0, 3)
-    .join('-')
-    || 'skill-run'
-  const ts = Date.now().toString(36).slice(-4)
-  const name = `${base}-${ts}`.slice(0, 50)
-  // Ensure valid team name: lowercase alphanumeric + hyphens, no leading/trailing hyphen
-  return name.replace(/^-+|-+$/g, '').replace(/-{2,}/g, '-') || `skill-run-${ts}`
-}
-
-/** Open iTerm2 (or Terminal fallback) with a shell command */
-function openTerminal(shellLine: string): Promise<void> {
+/** Open in iTerm2, fall back to Terminal.app */
+async function openTerminalIterm(shellLine: string): Promise<void> {
   const safeLine = escOsa(shellLine)
   const osa = `
 try
@@ -159,88 +64,102 @@ end try
   })
 }
 
-/** Launch agent teams via omc runtime-cli inside a new tmux session in iTerm */
-async function runAgentTeams(
-  cmds: string[],
-  projectPath: string | undefined,
-  goal: string,
-  skipPerms: boolean,
-  sources?: string[]
-): Promise<{ ok: boolean; teamName?: string; error?: string }> {
-  if (!existsSync(RUNTIME_CLI)) {
-    return { ok: false, error: 'runtime-cli not found' }
+async function openTerminalByType(shellLine: string, type: TerminalType, cwd?: string): Promise<void> {
+  switch (type) {
+    case 'terminal': {
+      const safeLine = escOsa(shellLine)
+      const osa = `tell application "Terminal"\n  do script "${safeLine}"\n  activate\nend tell`
+      return new Promise(resolve => {
+        exec(`osascript << 'OSAEOF'\n${osa}\nOSAEOF`, { timeout: 10000 }, () => resolve())
+      })
+    }
+    case 'tmux': {
+      const ts = Date.now().toString(36).slice(-4)
+      const sessName = `skill-run-${ts}`
+      const inner = esc(shellLine)
+      const tmuxLine = `tmux new-session -d -s '${sessName}' sh -c '${inner}' 2>/dev/null; tmux attach-session -t '${sessName}'`
+      return openTerminalIterm(tmuxLine)
+    }
+    case 'cmux': {
+      const cli = resolveCmuxCli()
+      if (!cli) {
+        console.warn('[run-skills] cmux not found, falling back to iterm')
+        return openTerminalIterm(shellLine)
+      }
+      return new Promise<void>(resolve => {
+        const args = ['new-workspace', '--command', shellLine, ...(cwd ? ['--cwd', cwd] : [])]
+        execFile(cli, args, { env: { ...process.env, PATH: ENVPATH } }, () => resolve())
+      })
+    }
+    case 'bg': {
+      return new Promise<void>(resolve => {
+        const child = spawn('sh', ['-c', shellLine], {
+          detached: true, stdio: 'ignore',
+          env: { ...process.env, PATH: ENVPATH },
+        })
+        child.unref()
+        resolve()
+      })
+    }
+    case 'iterm':
+    default:
+      return openTerminalIterm(shellLine)
   }
-
-  const cwd = projectPath || homedir()
-  const teamName = makeTeamName(goal || 'skill-run')
-  const goalSuffix = goal ? ` Goal: ${goal}` : ''
-  const hasLocalSource = Array.isArray(sources) && sources.includes('local')
-  const addDirFlag = projectPath ? `--add-dir '${esc(projectPath)}'` : ''
-  const localDirFlag = hasLocalSource ? `--add-dir '${esc(homedir() + '/cs_plugins')}'` : ''
-  // Workers run unattended inside tmux — they cannot respond to permission prompts.
-  // Always pass --dangerously-skip-permissions for team worker invocations.
-  const skipFlag = '--dangerously-skip-permissions'
-
-  // Build tasks — one per skill
-  const tasks = cmds.map((cmd, i) => ({
-    id: String(i + 1),
-    subject: cmd,
-    description: `Run the skill \`${cmd}\` using the Skill tool.${goalSuffix} Project: ${cwd.split('/').pop() || cwd}. Use the Skill tool to invoke the skill, then report what was done.`,
-  }))
-
-  const input = {
-    teamName,
-    agentTypes: cmds.map(() => 'claude'),
-    tasks,
-    cwd,
-    workerCount: cmds.length,
-    extraFlags: [skipFlag, addDirFlag, localDirFlag].filter(Boolean),
-  }
-
-  // Write config to temp file — avoids shell quoting issues
-  const configPath = join(tmpdir(), `skill-team-${teamName}.json`)
-  try {
-    writeFileSync(configPath, JSON.stringify(input), 'utf-8')
-  } catch (e) {
-    return { ok: false, error: `config write failed: ${e}` }
-  }
-
-  // runtime-cli requires running inside tmux — launch via iTerm in a new tmux session
-  // The session window shows the lead + worker panes managed by runtime-cli
-  const runtimeCmd = `cd '${esc(cwd)}' && node '${esc(RUNTIME_CLI)}' < '${esc(configPath)}'`
-  const tmuxCmd = `tmux new-session -s '${teamName}' "${escOsa(runtimeCmd)}"`
-  await openTerminal(tmuxCmd)
-
-  // Label panes (LEAD / Worker-N), focus LEAD, and kick Enter across all panes
-  setupTmuxSessionDetached(teamName, cmds.length)
-
-  return { ok: true, teamName }
 }
 
-/** Single skill: open terminal directly */
+/** Single skill: open in selected terminal */
 async function runSingleSkill(
   cmd: string,
   projectPath: string | undefined,
   skipPerms: boolean,
-  sources?: string[]
+  sources?: string[],
+  terminalType: TerminalType = 'iterm'
 ): Promise<void> {
   const hasLocalSource = Array.isArray(sources) && sources.includes('local')
   const cdPart = projectPath ? `cd '${esc(projectPath)}' && ` : ''
   const addDir = projectPath ? `--add-dir '${esc(projectPath)}' ` : ''
   const localAddDir = hasLocalSource ? `--add-dir '${esc(homedir() + '/cs_plugins')}' ` : ''
-  const claudeFlag = skipPerms ? '--dangerously-skip-permissions' : ''
-  const claudePart = `claude ${claudeFlag} ${addDir}${localAddDir}'${esc(cmd)}'`.trim()
-  await openTerminal(cdPart + claudePart)
+  const claudeFlag = skipPerms ? '--dangerously-skip-permissions ' : ''
+  const shellLine = `${cdPart}claude ${claudeFlag}${addDir}${localAddDir}'${esc(cmd)}'`.trim()
+  await openTerminalByType(shellLine, terminalType, projectPath)
+}
+
+/**
+ * Team run: /cs-partnership:cs-ceo leads the session.
+ * cs-ceo receives goal + skill list and dispatches workers via its built-in
+ * Agent orchestration. No runtime-cli or tmux pane management needed.
+ */
+async function runTeamWithCsCeoLead(
+  cmds: string[],
+  projectPath: string | undefined,
+  goal: string,
+  terminalType: TerminalType,
+  sources?: string[]
+): Promise<{ ok: boolean }> {
+  const cwd = projectPath || homedir()
+  const hasLocalSource = Array.isArray(sources) && sources.includes('local')
+  const addDir = projectPath ? `--add-dir '${esc(projectPath)}' ` : ''
+  const localAddDir = hasLocalSource ? `--add-dir '${esc(homedir() + '/cs_plugins')}' ` : ''
+
+  const skillList = cmds.map((c, i) => `${i + 1}. ${c}`).join('\n')
+  const goalText = (goal || '각 스킬 최적 실행').slice(0, 300)
+  const prompt = `목표: ${goalText}\n\n아래 스킬들을 팀으로 병렬 실행해줘 (각 스킬을 Agent로 dispatch):\n${skillList}\n\n/cs-partnership:cs-ceo`
+
+  const shellLine = `cd '${esc(cwd)}' && claude --dangerously-skip-permissions ${addDir}${localAddDir}'${esc(prompt)}'`
+  await openTerminalByType(shellLine, terminalType, cwd)
+  return { ok: true }
 }
 
 export async function POST(req: Request) {
   if (!checkOrigin(req)) return ORIGIN_FORBIDDEN
-  const { cmds, projectPath, skipPerms, goal, sources } = await req.json() as {
+
+  const { cmds, projectPath, skipPerms, goal, sources, terminalType } = await req.json() as {
     cmds: string[]
     projectPath?: string
     skipPerms?: boolean
     goal?: string
     sources?: string[]
+    terminalType?: TerminalType
   }
 
   const safeProjectPath = projectPath
@@ -257,38 +176,14 @@ export async function POST(req: Request) {
   const safeCmds = cmds.map(sanitizeCmd).filter(Boolean)
   if (safeCmds.length === 0) return Response.json({ error: 'no valid commands' }, { status: 400 })
 
+  const validTypes: TerminalType[] = ['iterm', 'terminal', 'tmux', 'cmux', 'bg']
+  const type: TerminalType = terminalType && validTypes.includes(terminalType) ? terminalType : 'iterm'
+
   if (safeCmds.length === 1) {
-    // Single skill: direct terminal launch
-    await runSingleSkill(safeCmds[0], safeProjectPath, skipPerms ?? false, sources)
+    await runSingleSkill(safeCmds[0], safeProjectPath, skipPerms ?? false, sources, type)
     return Response.json({ ok: true, cmds: safeCmds, mode: 'single' })
   }
 
-  // Multiple skills: try agent teams first, fall back to lead prompt
-  const result = await runAgentTeams(safeCmds, safeProjectPath, goal || '', skipPerms ?? false, sources)
-
-  if (result.ok) {
-    return Response.json({ ok: true, cmds: safeCmds, mode: 'team', teamName: result.teamName })
-  }
-
-  // Fallback: lead prompt in terminal (original behavior)
-  console.warn('[run-skills] agent teams unavailable, falling back to lead prompt:', result.error)
-  const goalText = (goal || '목표 달성').slice(0, 100).replace(/'/g, "'\\''")
-  const projectNote = safeProjectPath ? ` Project: ${safeProjectPath.split('/').pop()}.` : ''
-  const skillLines = safeCmds.map((cmd, i) => `${i + 1}. ${cmd}`).join(', ')
-  const leadPrompt = `You are an Agent Teams lead.${projectNote} Goal: ${goalText}.
-
-You must launch all ${safeCmds.length} skills simultaneously as parallel agents. In your FIRST response, call the Agent tool exactly ${safeCmds.length} times in a single message (all concurrent):
-${skillLines}
-
-For each agent, set subagent_type to "general-purpose" and write a prompt that invokes the assigned skill using the Skill tool. After all agents complete, summarize the results.`
-
-  const hasLocalSource = Array.isArray(sources) && sources.includes('local')
-  const cdPart = safeProjectPath ? `cd '${esc(safeProjectPath)}' && ` : ''
-  const addDir = safeProjectPath ? `--add-dir '${esc(safeProjectPath)}' ` : ''
-  const localAddDir = hasLocalSource ? `--add-dir '${esc(homedir() + '/cs_plugins')}' ` : ''
-  const claudeFlag = skipPerms ? '--dangerously-skip-permissions' : ''
-  const claudePart = `claude ${claudeFlag} ${addDir}${localAddDir}'${esc(leadPrompt)}'`.trim()
-  await openTerminal(cdPart + claudePart)
-
-  return Response.json({ ok: true, cmds: safeCmds, mode: 'lead-fallback' })
+  await runTeamWithCsCeoLead(safeCmds, safeProjectPath, goal || '', type, sources)
+  return Response.json({ ok: true, cmds: safeCmds, mode: 'team' })
 }
