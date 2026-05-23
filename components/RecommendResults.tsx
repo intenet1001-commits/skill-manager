@@ -3,12 +3,23 @@
 import { ProjectResult } from '@/hooks/useRecommendStream'
 import { ProjectContext } from '@/hooks/useProjectContext'
 
+type TerminalType = 'iterm' | 'terminal' | 'tmux' | 'cmux' | 'bg'
+
+const TERMINAL_OPTIONS: { key: TerminalType; label: string; title: string }[] = [
+  { key: 'cmux', label: 'cmux', title: 'cmux 탭으로 열기' },
+  { key: 'iterm', label: 'iTerm', title: 'iTerm2 창으로 열기 (기본)' },
+  { key: 'terminal', label: 'Terminal', title: 'macOS Terminal.app으로 열기' },
+  { key: 'bg', label: 'bg', title: '백그라운드 실행 (창 없음)' },
+  { key: 'tmux', label: 'tmux', title: 'tmux 세션으로 열기 (iTerm 안에서 attach)' },
+]
+
 interface Props {
   projectResults: ProjectResult[]
   projects: ProjectContext[]
   selectedSkills: Set<string>
   anyLoading: boolean
   skipPerms: boolean
+  terminalType: TerminalType
   copied: string | null
   runStatus: string | null
   totalRecs: number
@@ -17,14 +28,15 @@ interface Props {
   onToggleAll: () => void
   onRunSelected: () => void
   onSkipPermsChange: (v: boolean) => void
+  onTerminalTypeChange: (t: TerminalType) => void
   onCopyCmd: (cmd: string) => void
   installedPluginNames?: Set<string>
 }
 
 export function RecommendResults({
   projectResults, projects, selectedSkills, anyLoading,
-  skipPerms, copied, runStatus, totalRecs, allKeys,
-  onToggleSkill, onToggleAll, onRunSelected, onSkipPermsChange, onCopyCmd,
+  skipPerms, terminalType, copied, runStatus, totalRecs, allKeys,
+  onToggleSkill, onToggleAll, onRunSelected, onSkipPermsChange, onTerminalTypeChange, onCopyCmd,
   installedPluginNames,
 }: Props) {
   if (projectResults.length === 0) {
@@ -59,6 +71,26 @@ export function RecommendResults({
           </label>
           {selectedSkills.size > 0 && (
             <>
+              {/* Terminal type picker */}
+              <div style={{ display: 'inline-flex', gap: '2px', alignItems: 'center' }}>
+                {TERMINAL_OPTIONS.map(opt => (
+                  <button
+                    key={opt.key}
+                    onClick={() => onTerminalTypeChange(opt.key)}
+                    title={opt.title}
+                    style={{
+                      padding: '3px 7px', borderRadius: '5px', fontSize: '10px', fontWeight: 600,
+                      border: `1px solid ${terminalType === opt.key ? 'var(--primary)' : 'var(--border)'}`,
+                      background: terminalType === opt.key ? 'var(--primary)' : 'none',
+                      color: terminalType === opt.key ? '#fff' : 'var(--text-muted)',
+                      cursor: 'pointer', transition: 'all 0.12s',
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+
               {selectedSkills.size === 1 ? (
                 <label style={{
                   display: 'inline-flex', alignItems: 'center', gap: '4px',
