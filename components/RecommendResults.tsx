@@ -112,11 +112,11 @@ export function RecommendResults({
             bg
           </button>
 
-          {/* tmux toggle — visible but dimmed when cmux selected (cmux manages its own sessions) */}
+          {/* tmux toggle — active based on tmuxMode state; dimmed when ignored (cmux or bgMode) */}
           <button
             onClick={() => onTmuxModeChange(!tmuxMode)}
-            title={terminalType === 'cmux' ? 'tmux 모드 (cmux 선택 시 무시됨)' : 'tmux 세션으로 실행'}
-            style={toggleBtn(tmuxMode && terminalType !== 'cmux', '#86efac', '#1f2d20', 'rgba(34,197,94,0.5)')}
+            title={bgMode ? 'tmux 모드 (bg 모드 시 무시됨)' : terminalType === 'cmux' ? 'tmux 모드 (cmux 선택 시 무시됨)' : tmuxMode ? 'tmux ON — 클릭해서 OFF' : 'tmux 세션으로 실행'}
+            style={{ ...toggleBtn(tmuxMode, '#86efac', '#1f2d20', 'rgba(34,197,94,0.5)'), opacity: (bgMode || terminalType === 'cmux') ? 0.4 : 1 }}
           >
             tmux
           </button>
