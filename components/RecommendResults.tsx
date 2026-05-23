@@ -3,14 +3,12 @@
 import { ProjectResult } from '@/hooks/useRecommendStream'
 import { ProjectContext } from '@/hooks/useProjectContext'
 
-type TerminalType = 'iterm' | 'terminal' | 'tmux' | 'cmux' | 'bg'
+type TerminalType = 'iterm' | 'terminal' | 'cmux'
 
 const TERMINAL_OPTIONS: { key: TerminalType; label: string; title: string }[] = [
   { key: 'cmux', label: 'cmux', title: 'cmux 탭으로 열기' },
-  { key: 'iterm', label: 'iTerm', title: 'iTerm2 창으로 열기 (기본)' },
+  { key: 'iterm', label: 'iTerm', title: 'iTerm2 창으로 열기' },
   { key: 'terminal', label: 'Terminal', title: 'macOS Terminal.app으로 열기' },
-  { key: 'bg', label: 'bg', title: '백그라운드 실행 (창 없음)' },
-  { key: 'tmux', label: 'tmux', title: 'tmux 세션으로 열기 (iTerm 안에서 attach)' },
 ]
 
 interface Props {
@@ -20,6 +18,8 @@ interface Props {
   anyLoading: boolean
   skipPerms: boolean
   terminalType: TerminalType
+  bgMode: boolean
+  tmuxMode: boolean
   copied: string | null
   runStatus: string | null
   totalRecs: number
@@ -29,14 +29,25 @@ interface Props {
   onRunSelected: () => void
   onSkipPermsChange: (v: boolean) => void
   onTerminalTypeChange: (t: TerminalType) => void
+  onBgModeChange: (v: boolean) => void
+  onTmuxModeChange: (v: boolean) => void
   onCopyCmd: (cmd: string) => void
   installedPluginNames?: Set<string>
 }
 
+const toggleBtn = (active: boolean, color: string, bg: string, border: string) => ({
+  padding: '2px 7px', fontSize: '10px', borderRadius: '5px', cursor: 'pointer' as const,
+  border: `1px solid ${active ? border : 'var(--border)'}`,
+  background: active ? bg : 'none',
+  color: active ? color : 'var(--text-muted)',
+  fontWeight: 600, transition: 'all 0.12s',
+})
+
 export function RecommendResults({
   projectResults, projects, selectedSkills, anyLoading,
-  skipPerms, terminalType, copied, runStatus, totalRecs, allKeys,
-  onToggleSkill, onToggleAll, onRunSelected, onSkipPermsChange, onTerminalTypeChange, onCopyCmd,
+  skipPerms, terminalType, bgMode, tmuxMode, copied, runStatus, totalRecs, allKeys,
+  onToggleSkill, onToggleAll, onRunSelected, onSkipPermsChange, onTerminalTypeChange,
+  onBgModeChange, onTmuxModeChange, onCopyCmd,
   installedPluginNames,
 }: Props) {
   if (projectResults.length === 0) {
@@ -54,6 +65,8 @@ export function RecommendResults({
     )
   }
 
+  const isTeam = selectedSkills.size > 1
+
   return (
     <div>
       {/* Global controls */}
@@ -69,7 +82,8 @@ export function RecommendResults({
             />
             전체 선택
           </label>
-          {/* Terminal type picker — always visible when results exist */}
+
+          {/* Terminal type — exclusive radio */}
           <div style={{ display: 'inline-flex', gap: '2px', alignItems: 'center' }}>
             {TERMINAL_OPTIONS.map(opt => (
               <button
@@ -89,24 +103,36 @@ export function RecommendResults({
             ))}
           </div>
 
-          {/* ⚡ bypass toggle — always visible, persisted */}
+          {/* bg toggle */}
           <button
-            onClick={() => onSkipPermsChange(!skipPerms)}
-            title={selectedSkills.size > 1
-              ? '팀 모드에서는 --dangerously-skip-permissions 자동 적용'
-              : skipPerms ? 'bypass ON (--dangerously-skip-permissions)' : 'bypass OFF'}
-            style={{
-              padding: '2px 7px', fontSize: '10px', borderRadius: '5px', cursor: 'pointer',
-              border: `1px solid ${skipPerms || selectedSkills.size > 1 ? 'rgba(168,85,247,0.4)' : 'var(--border)'}`,
-              background: skipPerms || selectedSkills.size > 1 ? 'rgba(168,85,247,0.15)' : 'none',
-              color: skipPerms || selectedSkills.size > 1 ? '#c4b5fd' : 'var(--text-muted)',
-              fontWeight: 600, transition: 'all 0.12s',
-            }}
+            onClick={() => onBgModeChange(!bgMode)}
+            title="--bg 모드: claude --bg로 백그라운드 실행 (터미널 창 없음)"
+            style={toggleBtn(bgMode, '#c4b5fd', '#2d1f42', 'rgba(124,58,237,0.5)')}
           >
-            ⚡ {selectedSkills.size > 1 ? 'ON' : skipPerms ? 'ON' : 'OFF'}
+            bg
           </button>
 
-          {selectedSkills.size > 1 && !installedPluginNames?.has('csncompany_2-0') && (
+          {/* tmux toggle — visible but dimmed when cmux selected (cmux manages its own sessions) */}
+          <button
+            onClick={() => onTmuxModeChange(!tmuxMode)}
+            title={terminalType === 'cmux' ? 'tmux 모드 (cmux 선택 시 무시됨)' : 'tmux 세션으로 실행'}
+            style={toggleBtn(tmuxMode && terminalType !== 'cmux', '#86efac', '#1f2d20', 'rgba(34,197,94,0.5)')}
+          >
+            tmux
+          </button>
+
+          {/* ⚡ bypass toggle — forced ON in team mode */}
+          <button
+            onClick={() => !isTeam && onSkipPermsChange(!skipPerms)}
+            title={isTeam
+              ? '팀 모드에서는 --dangerously-skip-permissions 자동 적용'
+              : skipPerms ? 'bypass ON (--dangerously-skip-permissions)' : 'bypass OFF'}
+            style={toggleBtn(skipPerms || isTeam, '#c4b5fd', 'rgba(168,85,247,0.15)', 'rgba(168,85,247,0.4)')}
+          >
+            ⚡ {skipPerms || isTeam ? 'ON' : 'OFF'}
+          </button>
+
+          {isTeam && !installedPluginNames?.has('csncompany_2-0') && (
             <a
               href="https://github.com/intenet1001-commits/CSnCompany_2-0"
               target="_blank" rel="noreferrer"
@@ -127,11 +153,11 @@ export function RecommendResults({
           {selectedSkills.size > 0 && (
             <button onClick={onRunSelected} style={{
               padding: '4px 14px', borderRadius: '6px', fontSize: '12px', fontWeight: 600,
-              background: selectedSkills.size > 1 ? '#f59e0b' : skipPerms ? '#f59e0b' : 'var(--primary)',
+              background: isTeam ? '#f59e0b' : (skipPerms || bgMode) ? '#f59e0b' : 'var(--primary)',
               color: '#fff', border: 'none', cursor: 'pointer',
               display: 'inline-flex', alignItems: 'center', gap: '5px',
             }}>
-              {selectedSkills.size === 1 ? `▶ 실행${skipPerms ? ' ⚡' : ''}` : '▶ 팀 실행 (Agent Teams)'}
+              {isTeam ? '▶ 팀 실행 (Agent Teams)' : `▶ 실행${bgMode ? ' bg' : ''}${skipPerms ? ' ⚡' : ''}`}
             </button>
           )}
         </div>

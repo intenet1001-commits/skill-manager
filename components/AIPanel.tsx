@@ -37,9 +37,11 @@ export function AIPanel() {
   const [selectedSkills, setSelectedSkills] = useState<Set<string>>(new Set()) // "projectPath:index"
   const [runStatus, setRunStatus] = useState<string | null>(null)
   const [skipPerms, setSkipPerms] = useState(() => localStorage.getItem('skill-manager-skipPerms') !== 'false')
-  const [terminalType, setTerminalType] = useState<'iterm' | 'terminal' | 'tmux' | 'cmux' | 'bg'>(
-    () => (localStorage.getItem('skill-manager-terminalType') as 'iterm' | 'terminal' | 'tmux' | 'cmux' | 'bg') || 'cmux'
+  const [terminalType, setTerminalType] = useState<'iterm' | 'terminal' | 'cmux'>(
+    () => (localStorage.getItem('skill-manager-terminalType') as 'iterm' | 'terminal' | 'cmux') || 'cmux'
   )
+  const [bgMode, setBgMode] = useState(() => localStorage.getItem('skill-manager-bgMode') !== 'false')
+  const [tmuxMode, setTmuxMode] = useState(() => localStorage.getItem('skill-manager-tmuxMode') !== 'false')
   const [installedPluginNames, setInstalledPluginNames] = useState<Set<string>>(new Set())
   const [isDragOver, setIsDragOver] = useState(false)
   const [droppedFiles, setDroppedFiles] = useState<Array<{ name: string; charCount: number }>>([])
@@ -177,6 +179,8 @@ export function AIPanel() {
             skipPerms,
             goal: goal.trim() || undefined,
             terminalType,
+            bgMode,
+            tmuxMode,
           }),
         }).then(r => r.json())
       ))
@@ -660,6 +664,8 @@ export function AIPanel() {
         anyLoading={anyLoading}
         skipPerms={skipPerms}
         terminalType={terminalType}
+        bgMode={bgMode}
+        tmuxMode={tmuxMode}
         copied={copied}
         runStatus={runStatus}
         totalRecs={totalRecs}
@@ -669,6 +675,8 @@ export function AIPanel() {
         onRunSelected={runSelected}
         onSkipPermsChange={v => { setSkipPerms(v); localStorage.setItem('skill-manager-skipPerms', String(v)) }}
         onTerminalTypeChange={t => { setTerminalType(t); localStorage.setItem('skill-manager-terminalType', t) }}
+        onBgModeChange={v => { setBgMode(v); localStorage.setItem('skill-manager-bgMode', String(v)) }}
+        onTmuxModeChange={v => { setTmuxMode(v); localStorage.setItem('skill-manager-tmuxMode', String(v)) }}
         onCopyCmd={copyCmd}
         installedPluginNames={installedPluginNames}
       />

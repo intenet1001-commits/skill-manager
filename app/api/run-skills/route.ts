@@ -1,10 +1,10 @@
-import { exec, spawn, execFile } from 'child_process'
+import { exec, execFile } from 'child_process'
 import { homedir } from 'os'
 import { existsSync } from 'fs'
 import { sanitizeCmd as libSanitizeCmd, sanitizePath } from '@/lib/sanitize'
 import { checkOrigin, ORIGIN_FORBIDDEN } from '@/lib/check-origin'
 
-export type TerminalType = 'iterm' | 'terminal' | 'tmux' | 'cmux' | 'bg'
+export type TerminalType = 'iterm' | 'terminal' | 'cmux'
 
 const ENVPATH = '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:' + (process.env.PATH || '')
 
@@ -73,13 +73,6 @@ async function openTerminalByType(shellLine: string, type: TerminalType, cwd?: s
         exec(`osascript << 'OSAEOF'\n${osa}\nOSAEOF`, { timeout: 10000 }, () => resolve())
       })
     }
-    case 'tmux': {
-      const ts = Date.now().toString(36).slice(-4)
-      const sessName = `skill-run-${ts}`
-      const inner = esc(shellLine)
-      const tmuxLine = `tmux new-session -d -s '${sessName}' sh -c '${inner}' 2>/dev/null; tmux attach-session -t '${sessName}'`
-      return openTerminalIterm(tmuxLine)
-    }
     case 'cmux': {
       const cli = resolveCmuxCli()
       if (!cli) {
@@ -91,27 +84,35 @@ async function openTerminalByType(shellLine: string, type: TerminalType, cwd?: s
         execFile(cli, args, { env: { ...process.env, PATH: ENVPATH } }, () => resolve())
       })
     }
-    // 'bg' is handled before buildling shellLine in runSingleSkill / runTeamWithCsCeoLead
-    // so it should never reach here; fall through to iterm as safety net
     case 'iterm':
     default:
       return openTerminalIterm(shellLine)
   }
 }
 
-/** Single skill: open in selected terminal */
+/** Wrap shellLine in a tmux session and open in the given terminal */
+async function openInTmux(shellLine: string, type: TerminalType, cwd?: string): Promise<void> {
+  const ts = Date.now().toString(36).slice(-4)
+  const sessName = `skill-run-${ts}`
+  const inner = esc(shellLine)
+  const tmuxLine = `tmux new-session -d -s '${sessName}' sh -c '${inner}' 2>/dev/null; tmux attach-session -t '${sessName}'`
+  return openTerminalByType(tmuxLine, type, cwd)
+}
+
+/** Single skill: open in selected terminal with optional bg/tmux modes */
 async function runSingleSkill(
   cmd: string,
   projectPath: string | undefined,
   skipPerms: boolean,
-  sources?: string[],
-  terminalType: TerminalType = 'cmux'
+  sources: string[] | undefined,
+  terminalType: TerminalType,
+  bgMode: boolean,
+  tmuxMode: boolean,
 ): Promise<void> {
   const hasLocalSource = Array.isArray(sources) && sources.includes('local')
   const cwd = projectPath || homedir()
 
-  if (terminalType === 'bg') {
-    // claude --bg '<task>' spawns a background agent and exits immediately — no terminal window
+  if (bgMode) {
     const args = [
       ...(skipPerms ? ['--dangerously-skip-permissions'] : []),
       '--bg', cmd,
@@ -126,20 +127,24 @@ async function runSingleSkill(
   const localAddDir = hasLocalSource ? `--add-dir '${esc(homedir() + '/cs_plugins')}' ` : ''
   const claudeFlag = skipPerms ? '--dangerously-skip-permissions ' : ''
   const shellLine = `${cdPart}claude ${claudeFlag}${addDir}${localAddDir}'${esc(cmd)}'`.trim()
-  await openTerminalByType(shellLine, terminalType, projectPath)
+
+  if (tmuxMode && terminalType !== 'cmux') {
+    return openInTmux(shellLine, terminalType, projectPath)
+  }
+  return openTerminalByType(shellLine, terminalType, projectPath)
 }
 
 /**
- * Team run: /cs-partnership:cs-ceo leads the session.
- * cs-ceo receives goal + skill list and dispatches workers via its built-in
- * Agent orchestration. No runtime-cli or tmux pane management needed.
+ * Team run: cs-ceo leads the session, dispatches workers via Agent orchestration.
  */
 async function runTeamWithCsCeoLead(
   cmds: string[],
   projectPath: string | undefined,
   goal: string,
   terminalType: TerminalType,
-  sources?: string[]
+  sources: string[] | undefined,
+  bgMode: boolean,
+  tmuxMode: boolean,
 ): Promise<{ ok: boolean }> {
   const cwd = projectPath || homedir()
   const hasLocalSource = Array.isArray(sources) && sources.includes('local')
@@ -150,7 +155,7 @@ async function runTeamWithCsCeoLead(
   const goalText = (goal || '각 스킬 최적 실행').slice(0, 300)
   const prompt = `목표: ${goalText}\n\n아래 스킬들을 팀으로 병렬 실행해줘 (각 스킬을 Agent로 dispatch):\n${skillList}\n\n/cs-partnership:cs-ceo`
 
-  if (terminalType === 'bg') {
+  if (bgMode) {
     const args = [
       '--dangerously-skip-permissions',
       ...(projectPath ? ['--add-dir', projectPath] : []),
@@ -163,20 +168,27 @@ async function runTeamWithCsCeoLead(
   }
 
   const shellLine = `cd '${esc(cwd)}' && claude --dangerously-skip-permissions ${addDir}${localAddDir}'${esc(prompt)}'`
-  await openTerminalByType(shellLine, terminalType, cwd)
+
+  if (tmuxMode && terminalType !== 'cmux') {
+    await openInTmux(shellLine, terminalType, cwd)
+  } else {
+    await openTerminalByType(shellLine, terminalType, cwd)
+  }
   return { ok: true }
 }
 
 export async function POST(req: Request) {
   if (!checkOrigin(req)) return ORIGIN_FORBIDDEN
 
-  const { cmds, projectPath, skipPerms, goal, sources, terminalType } = await req.json() as {
+  const { cmds, projectPath, skipPerms, goal, sources, terminalType, bgMode, tmuxMode } = await req.json() as {
     cmds: string[]
     projectPath?: string
     skipPerms?: boolean
     goal?: string
     sources?: string[]
     terminalType?: TerminalType
+    bgMode?: boolean
+    tmuxMode?: boolean
   }
 
   const safeProjectPath = projectPath
@@ -193,14 +205,16 @@ export async function POST(req: Request) {
   const safeCmds = cmds.map(sanitizeCmd).filter(Boolean)
   if (safeCmds.length === 0) return Response.json({ error: 'no valid commands' }, { status: 400 })
 
-  const validTypes: TerminalType[] = ['iterm', 'terminal', 'tmux', 'cmux', 'bg']
-  const type: TerminalType = terminalType && validTypes.includes(terminalType) ? terminalType : 'iterm'
+  const validTypes: TerminalType[] = ['iterm', 'terminal', 'cmux']
+  const type: TerminalType = terminalType && validTypes.includes(terminalType) ? terminalType : 'cmux'
+  const bg = bgMode ?? false
+  const tmux = tmuxMode ?? false
 
   if (safeCmds.length === 1) {
-    await runSingleSkill(safeCmds[0], safeProjectPath, skipPerms ?? false, sources, type)
+    await runSingleSkill(safeCmds[0], safeProjectPath, skipPerms ?? false, sources, type, bg, tmux)
     return Response.json({ ok: true, cmds: safeCmds, mode: 'single' })
   }
 
-  await runTeamWithCsCeoLead(safeCmds, safeProjectPath, goal || '', type, sources)
+  await runTeamWithCsCeoLead(safeCmds, safeProjectPath, goal || '', type, sources, bg, tmux)
   return Response.json({ ok: true, cmds: safeCmds, mode: 'team' })
 }
