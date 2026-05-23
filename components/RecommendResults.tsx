@@ -89,6 +89,24 @@ export function RecommendResults({
             ))}
           </div>
 
+          {selectedSkills.size > 1 && !installedPluginNames?.has('csncompany_2-0') && (
+            <a
+              href="https://github.com/intenet1001-commits/CSnCompany_2-0"
+              target="_blank" rel="noreferrer"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: '4px',
+                fontSize: '11px', color: '#f59e0b',
+                padding: '3px 8px', borderRadius: '5px',
+                border: '1px solid rgba(245,158,11,0.4)',
+                background: 'rgba(245,158,11,0.06)',
+                textDecoration: 'none',
+              }}
+              title="팀 리드(cs-ceo)는 CSnCompany_2-0 플러그인이 필요합니다. 클릭해서 설치 방법 확인"
+            >
+              ⚠️ 팀 실행엔 CSnCompany_2-0 필요
+            </a>
+          )}
+
           {selectedSkills.size > 0 && (
             <>
               {selectedSkills.size === 1 ? (
