@@ -51,14 +51,17 @@ function setupTmuxSessionDetached(teamName: string, workerCount: number): void {
       fi
     done
 
-    # Kick Enter across all panes (runtime-cli lost-Enter race)
-    sleep 2
-    for _ in 1 2 3; do
-      tmux list-panes -s -t "$session" -F '#{pane_id}' 2>/dev/null | while read p; do
-        tmux send-keys -t "$p" Enter 2>/dev/null
-      done
+    # Kick Enter on LEAD pane only (pane index 0 = runtime-cli).
+    # Do NOT send Enter to worker panes — claude startup prompts default to
+    # "> 1. No, exit" so Enter would kill the worker and cause a restart loop.
+    lead_id=$(tmux list-panes -s -t "$session" -F '#{pane_index} #{pane_id}' 2>/dev/null | sort -n | head -1 | awk '{print $2}')
+    if [ -n "$lead_id" ]; then
       sleep 2
-    done
+      for _ in 1 2 3; do
+        tmux send-keys -t "$lead_id" Enter 2>/dev/null
+        sleep 2
+      done
+    fi
 
     # Finally, focus the LEAD pane (index 0) so the user lands on it
     lead_pid=$(tmux list-panes -s -t "$session" -F '#{pane_index} #{pane_id}' 2>/dev/null | sort -n | head -1 | awk '{print $2}')
@@ -174,7 +177,9 @@ async function runAgentTeams(
   const hasLocalSource = Array.isArray(sources) && sources.includes('local')
   const addDirFlag = projectPath ? `--add-dir '${esc(projectPath)}'` : ''
   const localDirFlag = hasLocalSource ? `--add-dir '${esc(homedir() + '/cs_plugins')}'` : ''
-  const skipFlag = skipPerms ? '--dangerously-skip-permissions' : ''
+  // Workers run unattended inside tmux — they cannot respond to permission prompts.
+  // Always pass --dangerously-skip-permissions for team worker invocations.
+  const skipFlag = '--dangerously-skip-permissions'
 
   // Build tasks — one per skill
   const tasks = cmds.map((cmd, i) => ({
