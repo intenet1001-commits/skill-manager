@@ -36,12 +36,10 @@ export function AIPanel() {
   const [copied, setCopied] = useState<string | null>(null)
   const [selectedSkills, setSelectedSkills] = useState<Set<string>>(new Set()) // "projectPath:index"
   const [runStatus, setRunStatus] = useState<string | null>(null)
-  const [skipPerms, setSkipPerms] = useState(() => localStorage.getItem('skill-manager-skipPerms') !== 'false')
-  const [terminalType, setTerminalType] = useState<'iterm' | 'terminal' | 'cmux'>(
-    () => (localStorage.getItem('skill-manager-terminalType') as 'iterm' | 'terminal' | 'cmux') || 'cmux'
-  )
-  const [bgMode, setBgMode] = useState(() => localStorage.getItem('skill-manager-bgMode') !== 'false')
-  const [tmuxMode, setTmuxMode] = useState(() => localStorage.getItem('skill-manager-tmuxMode') !== 'false')
+  const [skipPerms, setSkipPerms] = useState(true)
+  const [terminalType, setTerminalType] = useState<'iterm' | 'terminal' | 'cmux'>('cmux')
+  const [bgMode, setBgMode] = useState(true)
+  const [tmuxMode, setTmuxMode] = useState(true)
   const [installedPluginNames, setInstalledPluginNames] = useState<Set<string>>(new Set())
   const [isDragOver, setIsDragOver] = useState(false)
   const [droppedFiles, setDroppedFiles] = useState<Array<{ name: string; charCount: number }>>([])
@@ -74,6 +72,17 @@ export function AIPanel() {
   const pickerRef = useRef<HTMLDivElement>(null)
 
   // Load history on mount; cancel any in-flight streams on unmount
+  useEffect(() => {
+    const sp = localStorage.getItem('skill-manager-skipPerms')
+    if (sp !== null) setSkipPerms(sp !== 'false')
+    const tt = localStorage.getItem('skill-manager-terminalType')
+    if (tt) setTerminalType(tt as 'iterm' | 'terminal' | 'cmux')
+    const bg = localStorage.getItem('skill-manager-bgMode')
+    if (bg !== null) setBgMode(bg !== 'false')
+    const tmux = localStorage.getItem('skill-manager-tmuxMode')
+    if (tmux !== null) setTmuxMode(tmux !== 'false')
+  }, [])
+
   useEffect(() => {
     setHistory(loadHistory())
     fetch('/api/plugin-sources')
