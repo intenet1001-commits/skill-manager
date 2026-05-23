@@ -1,5 +1,21 @@
 # TODOS — Skill Manager
 
+## ✅ DONE — Terminal selector + team mode refactor (2026-05-23)
+
+Terminal type picker (cmux/iterm/terminal) + bg/tmux/⚡ as independent toggles with localStorage persistence. Team mode switched from runtime-cli.cjs to cs-ceo direct launch. CSnCompany_2-0 skill detection fixed (canonical name mapping). All defaults ON.
+
+---
+
+## P1 — Grey out conflicting toggles (UX bug)
+
+**What:** tmux toggle is silently ignored when bg=ON or cmux is selected. ⚡ toggle is unclickable in team mode but looks interactive.
+
+**Fix:** derive `tmuxDisabled = bgMode || terminalType === 'cmux'` → apply greyed styling + tooltip. In team mode render ⚡ as a locked badge with tooltip "Required for team mode".
+
+**Files:** `components/RecommendResults.tsx`
+
+---
+
 ## ✅ DONE — Claude CLI cold-start latency (2026-05-17)
 
 Anthropic SDK fast-path (`anthropic.messages.stream`) implemented in `app/api/recommend/route.ts:168-207`.

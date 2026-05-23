@@ -35,20 +35,19 @@ Entry point: `scripts/build-index.mjs`. Scans 5 sources in priority order (first
 - Concurrency cap: 5 parallel claude spawns (`MAX_CONCURRENT`)
 - Fallback: if Claude doesn't return within 35s, keyword-search recommendation runs instead with `fallback: true` flag
 - Goal text limit: 5000 chars (server `sanitizeGoal`), projectContext limit: 2500 chars
-- Known P1 (TODOS.md): Claude CLI cold-start latency (5-15s) dominates user-perceived latency
+- SDK fast-path (`anthropic.messages.stream`) is primary; CLI spawn is fallback when no API key. Cold-start latency P1 resolved.
 
-## Tmux Team Launcher (run-skills API)
+## Team Launcher (run-skills API)
 
 - Entry point: `app/api/run-skills/route.ts`
-- Single skill → opens iTerm with `claude '<cmd>'` directly
-- Multiple skills → launches omc `runtime-cli.cjs` inside a tmux session via iTerm
-- `setupTmuxSessionDetached` runs as a detached background script after team launch:
-  1. Waits for tmux session to exist (max 5s)
-  2. Sets `pane-border-status top` and labels each pane: `🧭 LEAD (talk here for follow-up tasks)` for index 0, `🤖 Worker-N` for others
-  3. Sends Enter to all panes 3 times (2s spacing) to fix runtime-cli's lost-Enter race condition
-  4. Auto-focuses LEAD pane (index 0)
-- `--dangerously-skip-permissions` is opt-in via the `skipPerms` checkbox; NOT auto-enabled
-- Assumes runtime-cli creates LEAD as pane index 0 — verify on next team launch (P1 TODO)
+- `TerminalType`: `'cmux' | 'iterm' | 'terminal'` — exclusive radio; default `cmux`
+- `bgMode` (`--bg`) and `tmuxMode` (tmux wrap) are independent boolean params; all 4 UI prefs default ON, persisted via `localStorage` + `useEffect` (not useState lazy init — SSR crash)
+- Single skill: `bgMode=true` → `execFile('claude', ['--bg', cmd])`, no terminal window
+- Team (2+ skills): `runTeamWithCsCeoLead()` builds goal+skillList prompt ending in `/cs-partnership:cs-ceo`, launches single `claude --dangerously-skip-permissions '<prompt>'`; cs-ceo dispatches workers internally. No runtime-cli.cjs.
+- cmux: `execFile(cmuxCli, ['new-workspace', '--command', shellLine, '--cwd', cwd])`; falls back to iTerm
+- tmuxMode + non-cmux: wraps in `tmux new-session -d` before opening; cmux ignores tmuxMode
+- bgMode takes precedence over tmuxMode when both ON
+- Team always uses `--dangerously-skip-permissions`; single skill uses `skipPerms` toggle (opt-in, default ON)
 
 ## Skill routing
 
