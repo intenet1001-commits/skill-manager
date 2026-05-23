@@ -16,31 +16,38 @@ const PROMPT = `# Claude Code 계정 로그인 기능 구현 프롬프트
 ## 구현할 파일 목록
 
 ### 1. lib/narrow-env.ts
-Node.js에서 execSync 실행 시 PATH 문제를 방지하기 위해
-HOME, PATH, USER, SHELL만 포함한 최소 환경변수를 반환하는 함수.
+Node.js에서 execSync 실행 시 PATH 문제와 비밀 환경변수(API key 등) 유출을 방지하기 위해
+HOME, TMPDIR, LANG, CLAUDE_MOCK만 포함하고 Homebrew 경로를 우선한 최소 PATH를 반환하는 함수.
+(USER·SHELL은 불필요 — TMPDIR·LANG은 Claude CLI 실행에 실제 필요)
 \`\`\`ts
-export function narrowEnv() {
-  return {
-    HOME: process.env.HOME ?? '',
-    PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
-    USER: process.env.USER ?? '',
-    SHELL: process.env.SHELL ?? '/bin/sh',
+const ALLOWED_KEYS = ['HOME', 'TMPDIR', 'LANG', 'CLAUDE_MOCK'] as const
+
+export function narrowEnv(extraPath = ''): NodeJS.ProcessEnv {
+  const env: Record<string, string | undefined> = {}
+  for (const key of ALLOWED_KEYS) {
+    if (process.env[key] !== undefined) env[key] = process.env[key]
   }
+  // /opt/homebrew/bin 우선 — macOS GUI 앱에서 Homebrew 설치 CLI 탐색
+  const parts = [extraPath, '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin']
+  if (process.env.PATH) parts.push(process.env.PATH)
+  env.PATH = parts.filter(Boolean).join(':')
+  return env as NodeJS.ProcessEnv
 }
 \`\`\`
 
 ### 2. lib/check-origin.ts
-localhost / 127.0.0.1 / ::1 origin만 허용. 외부 호출 차단.
+Origin 헤더와 Host 헤더를 비교해 같은 출처만 허용.
+하드코딩(localhost/127.0.0.1 등) 대신 Host 매칭 방식 → 포트가 달라도 자동 대응.
 \`\`\`ts
-import { NextRequest } from 'next/server'
 export const ORIGIN_FORBIDDEN = Response.json({ error: 'forbidden' }, { status: 403 })
-export function checkOrigin(req: NextRequest | Request): boolean {
-  const origin = req.headers.get('origin') ?? ''
-  const host = req.headers.get('host') ?? ''
-  if (!origin) return host.startsWith('localhost') || host.startsWith('127.')
+export function checkOrigin(req: Request): boolean {
+  const origin = req.headers.get('origin')
+  const host = req.headers.get('host')
+  // null = same-origin same-tab (브라우저가 Origin 헤더를 생략한 경우)
+  if (origin === null) return true
+  if (origin === '') return false
   try {
-    const { hostname } = new URL(origin)
-    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
+    return new URL(origin).host === host
   } catch { return false }
 }
 \`\`\`
@@ -75,20 +82,22 @@ if (cache && Date.now() - cache.ts < CACHE_TTL) return Response.json(cache)
 ### 4. app/api/claude-auth/route.ts (POST)
 body: { action: 'login' | 'logout' }
 
-- logout: \`claude auth logout\` 동기 실행 후 응답
-- login: \`claude auth login --claudeai\` 비동기 실행 (브라우저 OAuth 오픈),
-  child process를 detach한 뒤 1초 후 즉시 응답 (기다리지 않음)
-  → 프론트엔드가 폴링으로 완료 감지
+- logout: \`claude auth logout\` 비동기(execFile 콜백) 실행 후 완료 응답
+- login: \`claude auth login --claudeai\` 실행 (브라우저 OAuth 오픈),
+  프로세스 완료를 기다리지 않고 1초 후 즉시 응답 (setTimeout 조기 응답 패턴)
+  → 프론트엔드가 폴링으로 로그인 완료 감지
 
 ### 5. components/ClaudeAuthBadge.tsx
 \`\`\`
 상태 표시 버튼 (클릭 시 드롭다운):
-  ● 초록 dot: "Claude (이메일앞부분)" + 플랜 뱃지 (Max/Pro/Free)
+  ● 초록 dot: "Claude (이메일앞부분)" + 플랜 뱃지 (Max/Pro/Free/Team)
   ● 빨간 dot: "Claude 미로그인" 또는 "Claude 미설치"
+  ● null 상태(로딩 중): return null로 숨김
 
 드롭다운 내용:
   - 인증됨: 이메일, 플랜, 인증방식, 버전 표시 + 로그아웃 버튼
   - 미로그인: 설명 + 로그인 버튼
+  - 미설치: 설명 + claude.ai/code 설치 링크 버튼
 
 로그인 플로우:
   1. 버튼 클릭 → POST /api/claude-auth { action: 'login' }
