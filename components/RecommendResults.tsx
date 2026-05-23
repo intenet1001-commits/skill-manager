@@ -59,27 +59,36 @@ export function RecommendResults({
           </label>
           {selectedSkills.size > 0 && (
             <>
-              <label style={{
-                display: 'inline-flex', alignItems: 'center', gap: '4px',
-                fontSize: '11px', color: skipPerms ? '#f59e0b' : 'var(--text-muted)',
-                cursor: 'pointer', userSelect: 'none', padding: '3px 8px', borderRadius: '5px',
-                border: `1px solid ${skipPerms ? '#f59e0b' : 'var(--border)'}`,
-                background: skipPerms ? 'rgba(245,158,11,0.08)' : 'none',
-                transition: 'all 0.15s',
-              }} title="--dangerously-skip-permissions 플래그로 실행">
-                <input type="checkbox" checked={skipPerms}
-                  onChange={e => onSkipPermsChange(e.target.checked)}
-                  style={{ cursor: 'pointer', accentColor: '#f59e0b' }}
-                />
-                ⚡ 권한 스킵
-              </label>
+              {selectedSkills.size === 1 ? (
+                <label style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '4px',
+                  fontSize: '11px', color: skipPerms ? '#f59e0b' : 'var(--text-muted)',
+                  cursor: 'pointer', userSelect: 'none', padding: '3px 8px', borderRadius: '5px',
+                  border: `1px solid ${skipPerms ? '#f59e0b' : 'var(--border)'}`,
+                  background: skipPerms ? 'rgba(245,158,11,0.08)' : 'none',
+                  transition: 'all 0.15s',
+                }} title="--dangerously-skip-permissions 플래그로 실행">
+                  <input type="checkbox" checked={skipPerms}
+                    onChange={e => onSkipPermsChange(e.target.checked)}
+                    style={{ cursor: 'pointer', accentColor: '#f59e0b' }}
+                  />
+                  ⚡ 권한 스킵
+                </label>
+              ) : (
+                <span style={{
+                  fontSize: '11px', color: '#f59e0b', padding: '3px 8px', borderRadius: '5px',
+                  border: '1px solid rgba(245,158,11,0.4)', background: 'rgba(245,158,11,0.08)',
+                }} title="팀 모드에서 워커는 권한 프롬프트에 응답할 수 없어 자동으로 --dangerously-skip-permissions가 적용됩니다">
+                  🔓 팀 모드: 권한 자동 스킵
+                </span>
+              )}
               <button onClick={onRunSelected} style={{
                 padding: '4px 14px', borderRadius: '6px', fontSize: '12px', fontWeight: 600,
-                background: skipPerms ? '#f59e0b' : 'var(--primary)',
+                background: selectedSkills.size > 1 ? '#f59e0b' : skipPerms ? '#f59e0b' : 'var(--primary)',
                 color: '#fff', border: 'none', cursor: 'pointer',
                 display: 'inline-flex', alignItems: 'center', gap: '5px',
               }}>
-                {selectedSkills.size === 1 ? '▶ 실행' : '▶ 팀 실행 (Agent Teams)'}{skipPerms ? ' 🔓' : ''}
+                {selectedSkills.size === 1 ? `▶ 실행${skipPerms ? ' 🔓' : ''}` : '▶ 팀 실행 (Agent Teams) 🔓'}
               </button>
             </>
           )}
